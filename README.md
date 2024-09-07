@@ -1,3 +1,6 @@
+# Description
+This service allows to store your video and stream them as RTSP stream. Then the server display the stream on "localhost:8080/" using WebRTC. You can create multiple streams.
+
 Plan for this service for now:
     DownloadObject func for minion to save video to tmp dir;
     mb wg into service to monitor when to delete tmp dir;

@@ -1,0 +1,412 @@
+// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+//go:build !js
+// +build !js
+
+// sfu-ws is a many-to-many websocket based SFU
+package webrtc
+
+import (
+	"encoding/json"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"sync"
+	"text/template"
+	"time"
+
+	"github.com/deepch/vdk/av"
+	"github.com/deepch/vdk/codec/h264parser"
+	"github.com/deepch/vdk/format/rtsp"
+	"github.com/go-chi/chi"
+	"github.com/gorilla/websocket"
+	"github.com/pion/rtcp"
+	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media"
+)
+
+type WebrtcRepository struct {
+	upgrader        websocket.Upgrader
+	listLock        sync.RWMutex
+	indexTemplate   *template.Template
+	peerConnections []peerConnectionState
+	trackLocals     map[string]*webrtc.TrackLocalStaticSample
+}
+
+func NewWebrtcRepository() *WebrtcRepository {
+	indexHTML, err := os.ReadFile("./static/index.html")
+	if err != nil {
+		panic(err)
+	}
+	indexTemplate := template.Must(template.New("").Parse(string(indexHTML)))
+
+	return &WebrtcRepository{
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true },
+		},
+		indexTemplate:   indexTemplate,
+		listLock:        sync.RWMutex{},
+		peerConnections: make([]peerConnectionState, 0),
+		trackLocals:     map[string]*webrtc.TrackLocalStaticSample{},
+	}
+}
+
+func (wr *WebrtcRepository) RegisterRoutes(r chi.Router) {
+	r.HandleFunc("/websocket", wr.WebsocketHandler)
+
+	// index.html handler
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if err := wr.indexTemplate.Execute(w, "ws://"+r.Host+"/websocket"); err != nil {
+			log.Fatal(err)
+		}
+	})
+
+	// request a keyframe every 3 seconds
+	go func() {
+		for range time.NewTicker(time.Microsecond * 500).C {
+			wr.dispatchKeyFrame()
+		}
+	}()
+}
+
+type websocketMessage struct {
+	Event string `json:"event"`
+	Data  string `json:"data"`
+}
+
+type peerConnectionState struct {
+	peerConnection *webrtc.PeerConnection
+	websocket      *threadSafeWriter
+}
+
+// Add to list of tracks and fire renegotation for all PeerConnections
+func (wr *WebrtcRepository) addTrack(t *webrtc.TrackLocalStaticSample) error {
+	wr.listLock.Lock()
+	defer func() {
+		wr.listLock.Unlock()
+		wr.signalPeerConnections()
+	}()
+
+	wr.trackLocals[t.ID()] = t
+	return nil
+}
+
+// Remove from list of tracks and fire renegotation for all PeerConnections
+func (wr *WebrtcRepository) removeTrack(t *webrtc.TrackLocalStaticSample) {
+	wr.listLock.Lock()
+	defer func() {
+		wr.listLock.Unlock()
+		wr.signalPeerConnections()
+	}()
+
+	delete(wr.trackLocals, t.ID())
+}
+
+// signalPeerConnections updates each PeerConnection so that it is getting all the expected media tracks
+func (wr *WebrtcRepository) signalPeerConnections() {
+	wr.listLock.Lock()
+	defer func() {
+		wr.listLock.Unlock()
+		wr.dispatchKeyFrame()
+	}()
+
+	attemptSync := func() (tryAgain bool) {
+		for i := range wr.peerConnections {
+			if wr.peerConnections[i].peerConnection.ConnectionState() == webrtc.PeerConnectionStateClosed {
+				wr.peerConnections = append(wr.peerConnections[:i], wr.peerConnections[i+1:]...)
+				return true // We modified the slice, start from the beginning
+			}
+
+			// map of sender we already are seanding, so we don't double send
+			existingSenders := map[string]bool{}
+
+			for _, sender := range wr.peerConnections[i].peerConnection.GetSenders() {
+				if sender.Track() == nil {
+					continue
+				}
+
+				existingSenders[sender.Track().ID()] = true
+
+				// If we have a RTPSender that doesn't map to a existing track remove and signal
+				if _, ok := wr.trackLocals[sender.Track().ID()]; !ok {
+					if err := wr.peerConnections[i].peerConnection.RemoveTrack(sender); err != nil {
+						return true
+					}
+				}
+			}
+
+			// Don't receive videos we are sending, make sure we don't have loopback
+			for _, receiver := range wr.peerConnections[i].peerConnection.GetReceivers() {
+				if receiver.Track() == nil {
+					continue
+				}
+
+				existingSenders[receiver.Track().ID()] = true
+			}
+
+			// Add all track we aren't sending yet to the PeerConnection
+			for trackID := range wr.trackLocals {
+				if _, ok := existingSenders[trackID]; !ok {
+					if _, err := wr.peerConnections[i].peerConnection.AddTrack(wr.trackLocals[trackID]); err != nil {
+						return true
+					}
+				}
+			}
+
+			offer, err := wr.peerConnections[i].peerConnection.CreateOffer(nil)
+			if err != nil {
+				return true
+			}
+
+			if err = wr.peerConnections[i].peerConnection.SetLocalDescription(offer); err != nil {
+				return true
+			}
+
+			offerString, err := json.Marshal(offer)
+			if err != nil {
+				return true
+			}
+
+			if err = wr.peerConnections[i].websocket.WriteJSON(&websocketMessage{
+				Event: "offer",
+				Data:  string(offerString),
+			}); err != nil {
+				return true
+			}
+		}
+
+		return
+	}
+
+	for syncAttempt := 0; ; syncAttempt++ {
+		if syncAttempt == 25 {
+			// Release the lock and attempt a sync in 3 seconds. We might be blocking a RemoveTrack or AddTrack
+			go func() {
+				time.Sleep(time.Second * 3)
+				wr.signalPeerConnections()
+			}()
+			return
+		}
+
+		if !attemptSync() {
+			break
+		}
+	}
+}
+
+// dispatchKeyFrame sends a keyframe to all PeerConnections, used everytime a new user joins the call
+func (wr *WebrtcRepository) dispatchKeyFrame() {
+	wr.listLock.Lock()
+	defer wr.listLock.Unlock()
+
+	for i := range wr.peerConnections {
+		for _, receiver := range wr.peerConnections[i].peerConnection.GetReceivers() {
+			if receiver.Track() == nil {
+				continue
+			}
+
+			_ = wr.peerConnections[i].peerConnection.WriteRTCP([]rtcp.Packet{
+				&rtcp.PictureLossIndication{
+					MediaSSRC: uint32(receiver.Track().SSRC()),
+				},
+			})
+		}
+	}
+}
+
+// Handle incoming websockets
+func (wr *WebrtcRepository) WebsocketHandler(w http.ResponseWriter, r *http.Request) {
+	// Upgrade HTTP request to Websocket
+	unsafeConn, err := wr.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Print("upgrade:", err)
+		return
+	}
+
+	c := &threadSafeWriter{unsafeConn, sync.Mutex{}}
+
+	// When this frame returns close the Websocket
+	defer c.Close() //nolint
+
+	// Create new PeerConnection
+	peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		log.Print(err)
+		return
+	}
+
+	// When this frame returns close the PeerConnection
+	defer peerConnection.Close() //nolint
+
+	// Add our new PeerConnection to global list
+	wr.listLock.Lock()
+	wr.peerConnections = append(wr.peerConnections, peerConnectionState{peerConnection, c})
+	wr.listLock.Unlock()
+
+	// Trickle ICE. Emit server candidate to client
+	peerConnection.OnICECandidate(func(i *webrtc.ICECandidate) {
+		if i == nil {
+			return
+		}
+
+		candidateString, err := json.Marshal(i.ToJSON())
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		if writeErr := c.WriteJSON(&websocketMessage{
+			Event: "candidate",
+			Data:  string(candidateString),
+		}); writeErr != nil {
+			log.Println(writeErr)
+		}
+	})
+
+	// If PeerConnection is closed remove it from global list
+	peerConnection.OnConnectionStateChange(func(p webrtc.PeerConnectionState) {
+		switch p {
+		case webrtc.PeerConnectionStateFailed:
+			if err := peerConnection.Close(); err != nil {
+				log.Print(err)
+			}
+		case webrtc.PeerConnectionStateClosed:
+			wr.signalPeerConnections()
+		default:
+		}
+	})
+
+	outboundVideoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+		MimeType: "video/h264",
+	}, "pion-rtsp", "pion-rtsp")
+	if err != nil {
+		panic(err)
+	}
+
+	err = wr.addTrack(outboundVideoTrack)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer wr.removeTrack(outboundVideoTrack)
+
+	go rtspConsumer(outboundVideoTrack, "rtsp://localhost:8554")
+
+	// Signal for the new PeerConnection
+	wr.signalPeerConnections()
+
+	message := &websocketMessage{}
+	for {
+		_, raw, err := c.ReadMessage()
+		if err != nil {
+			log.Println(err)
+			return
+		} else if err := json.Unmarshal(raw, &message); err != nil {
+			log.Println(err)
+			return
+		}
+
+		switch message.Event {
+		case "candidate":
+			candidate := webrtc.ICECandidateInit{}
+			if err := json.Unmarshal([]byte(message.Data), &candidate); err != nil {
+				log.Println(err)
+				return
+			}
+
+			if err := peerConnection.AddICECandidate(candidate); err != nil {
+				log.Println(err)
+				return
+			}
+		case "answer":
+			answer := webrtc.SessionDescription{}
+			if err := json.Unmarshal([]byte(message.Data), &answer); err != nil {
+				log.Println(err)
+				return
+			}
+
+			if err := peerConnection.SetRemoteDescription(answer); err != nil {
+				log.Println(err)
+				return
+			}
+		}
+	}
+}
+
+// Helper to make Gorilla Websockets threadsafe
+type threadSafeWriter struct {
+	*websocket.Conn
+	sync.Mutex
+}
+
+func (t *threadSafeWriter) WriteJSON(v interface{}) error {
+	t.Lock()
+	defer t.Unlock()
+
+	return t.Conn.WriteJSON(v)
+}
+
+// Connect to an RTSP URL and pull media.
+// Convert H264 to Annex-B, then write to outboundVideoTrack which sends to all PeerConnections
+func rtspConsumer(track *webrtc.TrackLocalStaticSample, rtspUrl string) {
+	annexbNALUStartCode := func() []byte { return []byte{0x00, 0x00, 0x00, 0x01} }
+
+	for {
+		session, err := rtsp.Dial(rtspUrl)
+		if err != nil {
+			panic(err)
+		}
+		session.RtpKeepAliveTimeout = 10 * time.Second
+
+		codecs, err := session.Streams()
+		if err != nil {
+			panic(err)
+		}
+		for i, t := range codecs {
+			log.Println("Stream", i, "is of type", t.Type().String())
+		}
+		if codecs[0].Type() != av.H264 {
+			panic("RTSP feed must begin with a H264 codec")
+		}
+		if len(codecs) != 1 {
+			log.Println("Ignoring all but the first stream.")
+		}
+
+		var previousTime time.Duration
+		for {
+			pkt, err := session.ReadPacket()
+			if err != nil {
+				break
+			}
+
+			if pkt.Idx != 0 {
+				//audio or other stream, skip it
+				continue
+			}
+
+			pkt.Data = pkt.Data[4:]
+
+			// For every key-frame pre-pend the SPS and PPS
+			if pkt.IsKeyFrame {
+				pkt.Data = append(annexbNALUStartCode(), pkt.Data...)
+				pkt.Data = append(codecs[0].(h264parser.CodecData).PPS(), pkt.Data...)
+				pkt.Data = append(annexbNALUStartCode(), pkt.Data...)
+				pkt.Data = append(codecs[0].(h264parser.CodecData).SPS(), pkt.Data...)
+				pkt.Data = append(annexbNALUStartCode(), pkt.Data...)
+			}
+
+			bufferDuration := pkt.Time - previousTime
+			previousTime = pkt.Time
+			if err = track.WriteSample(media.Sample{Data: pkt.Data, Duration: bufferDuration}); err != nil && err != io.ErrClosedPipe {
+				panic(err)
+			}
+		}
+
+		if err = session.Close(); err != nil {
+			log.Println("session Close error", err)
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+}

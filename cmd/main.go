@@ -10,7 +10,6 @@ import (
 
 	"video-handler/configs"
 	"video-handler/internal"
-	"video-handler/internal/webrtc"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -49,7 +48,8 @@ func main() {
 
 	httpRepository.RegisterRoutes(r)
 
-	webrtcRespository := webrtc.NewWebrtcRepository()
+	webrtcRespository := internal.NewWebrtcRepository()
+	webrtcRespository.InitConnection(r)
 	webrtcRespository.RegisterRoutes(r)
 
 	logger.Info("server started and running on port :" + envs.ServerPort)

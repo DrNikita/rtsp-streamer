@@ -5,7 +5,7 @@
 // +build !js
 
 // sfu-ws is a many-to-many websocket based SFU
-package webrtc
+package internal
 
 import (
 	"encoding/json"
@@ -26,6 +26,14 @@ import (
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 )
+
+type WebrtcManager interface {
+	addTrack(t *webrtc.TrackLocalStaticSample) error
+	removeTrack(t *webrtc.TrackLocalStaticSample)
+	signalPeerConnections()
+	dispatchKeyFrame()
+	websocketHandler(w http.ResponseWriter, r *http.Request)
+}
 
 type WebrtcRepository struct {
 	upgrader        websocket.Upgrader
@@ -54,7 +62,39 @@ func NewWebrtcRepository() *WebrtcRepository {
 }
 
 func (wr *WebrtcRepository) RegisterRoutes(r chi.Router) {
-	r.HandleFunc("/websocket", wr.WebsocketHandler)
+	r.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
+		var response struct {
+			Error   string `json:"error,omitempty"`
+			Success string `json:"success,omitempty"`
+		}
+
+		var requestBody struct {
+			VideoSource string `json:"rtsp_url"`
+		}
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+
+		err = json.Unmarshal(bodyBytes, &requestBody)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		err = wr.publishNewStream(requestBody.VideoSource)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+
+		response.Success = "success"
+		json.NewEncoder(w).Encode(response)
+	})
+}
+
+func (wr *WebrtcRepository) InitConnection(r chi.Router) {
+	r.HandleFunc("/websocket", wr.websocketHandler)
 
 	// index.html handler
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +257,7 @@ func (wr *WebrtcRepository) dispatchKeyFrame() {
 }
 
 // Handle incoming websockets
-func (wr *WebrtcRepository) WebsocketHandler(w http.ResponseWriter, r *http.Request) {
+func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	// Upgrade HTTP request to Websocket
 	unsafeConn, err := wr.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -278,20 +318,22 @@ func (wr *WebrtcRepository) WebsocketHandler(w http.ResponseWriter, r *http.Requ
 		}
 	})
 
-	outboundVideoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+	//////////////////////////////////////////////////////////////////////////////////
+	videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
 		MimeType: "video/h264",
 	}, "pion-rtsp", "pion-rtsp")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	err = wr.addTrack(outboundVideoTrack)
+	err = wr.addTrack(videoTrack)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer wr.removeTrack(outboundVideoTrack)
+	defer wr.removeTrack(videoTrack)
 
-	go rtspConsumer(outboundVideoTrack, "rtsp://localhost:8554")
+	go rtspConsumer(videoTrack, "rtsp://localhost:8554")
+	///////////////////////////////////////////////////////////////////////////////////
 
 	// Signal for the new PeerConnection
 	wr.signalPeerConnections()
@@ -345,6 +387,27 @@ func (t *threadSafeWriter) WriteJSON(v interface{}) error {
 	defer t.Unlock()
 
 	return t.Conn.WriteJSON(v)
+}
+
+func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
+	videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+		MimeType: "video/h264",
+	}, "pion-rtsp", "pion-rtsp")
+	if err != nil {
+		return err
+	}
+
+	err = wr.addTrack(videoTrack)
+	if err != nil {
+		return err
+	}
+	defer wr.removeTrack(videoTrack)
+
+	go rtspConsumer(videoTrack, rtspUrl)
+
+	wr.signalPeerConnections()
+
+	return nil
 }
 
 // Connect to an RTSP URL and pull media.

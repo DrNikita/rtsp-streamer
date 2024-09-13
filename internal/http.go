@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"sync"
 	"video-handler/configs"
@@ -28,7 +27,7 @@ func (respository *HttpRepository) RegisterRoutes(r chi.Router) {
 	r.Post("/stream", respository.stream)
 	r.Post("/upload", respository.upload)
 	r.Get("/video-list", respository.videoList)
-	r.Get("/video", respository.video)
+	// r.Get("/video", respository.video)
 }
 
 func (repository *HttpRepository) stream(w http.ResponseWriter, r *http.Request) {
@@ -42,16 +41,6 @@ func (repository *HttpRepository) stream(w http.ResponseWriter, r *http.Request)
 	wg.Add(1)
 	go func() {
 		wg.Done()
-		// rtspServer := rtspserver.ConfigureServer(
-		// 	":"+strconv.Itoa(freePort),
-		// 	":8080",
-		// 	":8001",
-		// 	"224.1.0.0/16",
-		// 	8002,
-		// 	8003,
-		// 	repository.Context,
-		// )
-
 		rtspServer := rtspserver.ConfigureRtspServer(":"+strconv.Itoa(freePort), repository.Context)
 		err := rtspServer.StartAndWait()
 		if err != nil {
@@ -155,6 +144,7 @@ func (repository *HttpRepository) videoList(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(videos)
 }
 
+/*
 func (repository *HttpRepository) video(w http.ResponseWriter, r *http.Request) {
 	videoName := r.URL.Query().Get("videoName")
 	video, err := repository.Service.GetVideo(videoName)
@@ -175,3 +165,4 @@ func (repository *HttpRepository) video(w http.ResponseWriter, r *http.Request) 
 
 	http.ServeFile(w, r, "SUCCESS111111.mp4")
 }
+*/

@@ -18,6 +18,10 @@
     <h3> Logs </h3>
     <div id="logs"></div>
 
+    <!-- Добавляем поле для ввода текста и кнопку -->
+    <h3> Publish Event </h3>
+    <input type="text" id="inputMessage" placeholder="Enter message to publish">
+    <button id="publishButton">Publish</button>
 
   </body>
 
@@ -25,6 +29,7 @@
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     .then(stream => {
       let pc = new RTCPeerConnection()
+
       pc.ontrack = function (event) {
         if (event.track.kind === 'audio') {
           return
@@ -51,6 +56,8 @@
       stream.getTracks().forEach(track => pc.addTrack(track, stream))
 
       let ws = new WebSocket("{{.}}")
+
+      // Отправка ICE-кандидатов
       pc.onicecandidate = e => {
         if (!e.candidate) {
           return
@@ -95,6 +102,18 @@
       ws.onerror = function(evt) {
         console.log("ERROR: " + evt.data)
       }
+
+      // Добавляем обработчик клика для кнопки "Publish"
+      document.getElementById('publishButton').addEventListener('click', function() {
+        let message = document.getElementById('inputMessage').value;
+        if (message) {
+          ws.send(JSON.stringify({event: 'publish', data: JSON.stringify(message)}));
+          console.log("Message sent:", message);
+        } else {
+          console.log("No message to send");
+        }
+      });
+
     }).catch(window.alert)
   </script>
 </html>

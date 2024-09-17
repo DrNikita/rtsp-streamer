@@ -189,7 +189,8 @@ func (wr *WebrtcRepository) signalPeerConnections() {
 			// Add all track we aren't sending yet to the PeerConnection
 			for trackID := range wr.trackLocals {
 				if _, ok := existingSenders[trackID]; !ok {
-					if _, err := wr.peerConnections[i].peerConnection.AddTrack(wr.trackLocals[trackID]); err != nil {
+
+					if _, err := wr.peerConnections[i].peerConnection.AddTransceiverFromTrack(wr.trackLocals[trackID], webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly}); err != nil {
 						return true
 					}
 				}
@@ -318,10 +319,20 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 		}
 	})
 
-	//////////////////////////////////////////////////////////////////////////////////
+	if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
+		panic(err)
+	}
+
 	videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
 		MimeType: "video/h264",
 	}, "pion-rtsp", "pion-rtsp")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	newVideoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+		MimeType: "video/h264",
+	}, "pion-rtsp1", "pion-rtsp1")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -332,8 +343,26 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 	}
 	defer wr.removeTrack(videoTrack)
 
+	err = wr.addTrack(newVideoTrack)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer wr.removeTrack(newVideoTrack)
+
 	go rtspConsumer(videoTrack, "rtsp://localhost:8554")
-	///////////////////////////////////////////////////////////////////////////////////
+	go rtspConsumer(newVideoTrack, "rtsp://localhost:8555")
+
+	processRTCP := func(rtpSender *webrtc.RTPSender) {
+		rtcpBuf := make([]byte, 1500)
+		for {
+			if _, _, rtcpErr := rtpSender.Read(rtcpBuf); rtcpErr != nil {
+				return
+			}
+		}
+	}
+	for _, rtpSender := range peerConnection.GetSenders() {
+		go processRTCP(rtpSender)
+	}
 
 	// Signal for the new PeerConnection
 	wr.signalPeerConnections()
@@ -372,6 +401,36 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 				log.Println(err)
 				return
 			}
+		case "publish":
+			videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
+				MimeType: "video/h264",
+			}, "pion-132131", "pion-132131")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			err = wr.addTrack(videoTrack)
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer wr.removeTrack(videoTrack)
+
+			var requestBody struct {
+				VideoSource string `json:"rtsp_url"`
+			}
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			err = json.Unmarshal(bodyBytes, &requestBody)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			go rtspConsumer(videoTrack, requestBody.VideoSource)
 		}
 	}
 }
@@ -401,11 +460,8 @@ func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
 	if err != nil {
 		return err
 	}
-	defer wr.removeTrack(videoTrack)
 
 	go rtspConsumer(videoTrack, rtspUrl)
-
-	wr.signalPeerConnections()
 
 	return nil
 }

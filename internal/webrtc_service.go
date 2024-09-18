@@ -9,10 +9,13 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
@@ -26,6 +29,8 @@ import (
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 )
+
+var i int
 
 type WebrtcManager interface {
 	addTrack(t *webrtc.TrackLocalStaticSample) error
@@ -330,27 +335,13 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 		log.Fatal(err)
 	}
 
-	newVideoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
-		MimeType: "video/h264",
-	}, "pion-rtsp1", "pion-rtsp1")
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	err = wr.addTrack(videoTrack)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer wr.removeTrack(videoTrack)
 
-	err = wr.addTrack(newVideoTrack)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer wr.removeTrack(newVideoTrack)
-
 	go rtspConsumer(videoTrack, "rtsp://localhost:8554")
-	go rtspConsumer(newVideoTrack, "rtsp://localhost:8555")
 
 	processRTCP := func(rtpSender *webrtc.RTPSender) {
 		rtcpBuf := make([]byte, 1500)
@@ -402,12 +393,16 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 				return
 			}
 		case "publish":
+			i++
 			videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
 				MimeType: "video/h264",
-			}, "pion-132131", "pion-132131")
+			}, "pion-"+strconv.Itoa(i), "pion-"+strconv.Itoa(i))
 			if err != nil {
 				log.Fatal(err)
 			}
+
+			rtspUrl := strings.Replace(message.Data, "\"", "", -1)
+			fmt.Println(rtspUrl)
 
 			err = wr.addTrack(videoTrack)
 			if err != nil {
@@ -415,22 +410,7 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 			}
 			defer wr.removeTrack(videoTrack)
 
-			var requestBody struct {
-				VideoSource string `json:"rtsp_url"`
-			}
-			bodyBytes, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			err = json.Unmarshal(bodyBytes, &requestBody)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			go rtspConsumer(videoTrack, requestBody.VideoSource)
+			go rtspConsumer(videoTrack, rtspUrl)
 		}
 	}
 }

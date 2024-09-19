@@ -26,8 +26,8 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
-	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media"
+	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 var i int
@@ -324,9 +324,21 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 		}
 	})
 
-	if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly}); err != nil {
+	_, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly})
+	if err != nil {
 		panic(err)
 	}
+	//////////////////////////////
+	// params := transceiver.Sender().GetParameters()
+	// for i := range params.Encodings {
+	// 	// params.Encodings[i].RID = webrtc.string(StatsTypeReceiver) (5000000) // 5 Mbps
+	// 	params.Encodings[i].SSRC = 1.0 // Оставить разрешение как есть
+	// }
+
+	// err = transceiver.Sender().AddEncoding(transceiver.Sender().Track())
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
 		MimeType: "video/h264",
@@ -506,6 +518,6 @@ func rtspConsumer(track *webrtc.TrackLocalStaticSample, rtspUrl string) {
 			log.Println("session Close error", err)
 		}
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/deepch/vdk/av"
 	"github.com/deepch/vdk/codec/h264parser"
 	"github.com/deepch/vdk/format/rtsp"
+	"github.com/deepch/vdk/format/rtspv2"
 	"github.com/go-chi/chi"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
@@ -353,7 +354,7 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 	}
 	defer wr.removeTrack(videoTrack)
 
-	go rtspConsumer(videoTrack, "rtsp://localhost:8554")
+	go rtspConsumerV2(videoTrack, "rtsp://localhost:8554")
 
 	processRTCP := func(rtpSender *webrtc.RTPSender) {
 		rtcpBuf := make([]byte, 1500)
@@ -422,7 +423,7 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 			}
 			defer wr.removeTrack(videoTrack)
 
-			go rtspConsumer(videoTrack, rtspUrl)
+			go rtspConsumerV2(videoTrack, rtspUrl)
 		}
 	}
 }
@@ -453,7 +454,7 @@ func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
 		return err
 	}
 
-	go rtspConsumer(videoTrack, rtspUrl)
+	go rtspConsumerV2(videoTrack, rtspUrl)
 
 	return nil
 }
@@ -521,3 +522,67 @@ func rtspConsumer(track *webrtc.TrackLocalStaticSample, rtspUrl string) {
 		time.Sleep(1 * time.Second)
 	}
 }
+
+func rtspConsumerV2(track *webrtc.TrackLocalStaticSample, rtspUrl string) {
+	RTSPClient, err := rtspv2.Dial(rtspv2.RTSPClientOptions{URL: rtspUrl, DisableAudio: true, DialTimeout: 3 * time.Second, ReadWriteTimeout: 3 * time.Second, Debug: true})
+	if err != nil {
+		panic(err)
+	}
+	var previousTime time.Duration
+	for {
+		select {
+		case packetAV := <-RTSPClient.OutgoingPacketQueue:
+			if packetAV.IsKeyFrame {
+				bufferDuration := packetAV.Time - previousTime
+				previousTime = packetAV.Time
+				if err = track.WriteSample(media.Sample{Data: packetAV.Data, Duration: bufferDuration}); err != nil && err != io.ErrClosedPipe {
+					panic(err)
+				}
+			}
+		}
+	}
+}
+
+// func RTSPWorker(name, url string, OnDemand, DisableAudio, Debug bool) error {
+// 	keyTest := time.NewTimer(20 * time.Second)
+// 	clientTest := time.NewTimer(20 * time.Second)
+// 	//add next TimeOut
+// 	RTSPClient, err := rtspv2.Dial(rtspv2.RTSPClientOptions{URL: url, DisableAudio: DisableAudio, DialTimeout: 3 * time.Second, ReadWriteTimeout: 3 * time.Second, Debug: Debug})
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer RTSPClient.Close()
+// 	if RTSPClient.CodecData != nil {
+// 		Config.coAd(name, RTSPClient.CodecData)
+// 	}
+// 	var AudioOnly bool
+// 	if len(RTSPClient.CodecData) == 1 && RTSPClient.CodecData[0].Type().IsAudio() {
+// 		AudioOnly = true
+// 	}
+// for {
+// 	select {
+// 	case <-clientTest.C:
+// 		if OnDemand {
+// 			if !Config.HasViewer(name) {
+// 				return ErrorStreamExitNoViewer
+// 			} else {
+// 				clientTest.Reset(20 * time.Second)
+// 			}
+// 		}
+// 	case <-keyTest.C:
+// 		return ErrorStreamExitNoVideoOnStream
+// 	case signals := <-RTSPClient.Signals:
+// 		switch signals {
+// 		case rtspv2.SignalCodecUpdate:
+// 			Config.coAd(name, RTSPClient.CodecData)
+// 		case rtspv2.SignalStreamRTPStop:
+// 			return ErrorStreamExitRtspDisconnect
+// 		}
+// 	case packetAV := <-RTSPClient.OutgoingPacketQueue:
+// 		if AudioOnly || packetAV.IsKeyFrame {
+// 			keyTest.Reset(20 * time.Second)
+// 		}
+// 		Config.cast(name, *packetAV)
+// 	}
+// }
+// }

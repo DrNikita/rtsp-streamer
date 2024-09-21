@@ -20,15 +20,15 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/deepch/vdk/av"
-	"github.com/deepch/vdk/codec/h264parser"
-	"github.com/deepch/vdk/format/rtsp"
-	"github.com/deepch/vdk/format/rtspv2"
+	"github.com/bluenviron/gortsplib/v4"
+	"github.com/bluenviron/gortsplib/v4/pkg/base"
+	"github.com/bluenviron/gortsplib/v4/pkg/description"
+	"github.com/bluenviron/gortsplib/v4/pkg/format"
 	"github.com/go-chi/chi"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 var i int
@@ -46,7 +46,7 @@ type WebrtcRepository struct {
 	listLock        sync.RWMutex
 	indexTemplate   *template.Template
 	peerConnections []peerConnectionState
-	trackLocals     map[string]*webrtc.TrackLocalStaticSample
+	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
 }
 
 func NewWebrtcRepository() *WebrtcRepository {
@@ -63,7 +63,7 @@ func NewWebrtcRepository() *WebrtcRepository {
 		indexTemplate:   indexTemplate,
 		listLock:        sync.RWMutex{},
 		peerConnections: make([]peerConnectionState, 0),
-		trackLocals:     map[string]*webrtc.TrackLocalStaticSample{},
+		trackLocals:     map[string]*webrtc.TrackLocalStaticRTP{},
 	}
 }
 
@@ -89,10 +89,10 @@ func (wr *WebrtcRepository) RegisterRoutes(r chi.Router) {
 
 		w.Header().Set("Content-Type", "application/json")
 
-		err = wr.publishNewStream(requestBody.VideoSource)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		}
+		// err = wr.publishNewStream(requestBody.VideoSource)
+		// if err != nil {
+		// 	http.Error(w, err.Error(), http.StatusBadRequest)
+		// }
 
 		response.Success = "success"
 		json.NewEncoder(w).Encode(response)
@@ -128,7 +128,7 @@ type peerConnectionState struct {
 }
 
 // Add to list of tracks and fire renegotation for all PeerConnections
-func (wr *WebrtcRepository) addTrack(t *webrtc.TrackLocalStaticSample) error {
+func (wr *WebrtcRepository) addTrack(t *webrtc.TrackLocalStaticRTP) error {
 	wr.listLock.Lock()
 	defer func() {
 		wr.listLock.Unlock()
@@ -140,7 +140,7 @@ func (wr *WebrtcRepository) addTrack(t *webrtc.TrackLocalStaticSample) error {
 }
 
 // Remove from list of tracks and fire renegotation for all PeerConnections
-func (wr *WebrtcRepository) removeTrack(t *webrtc.TrackLocalStaticSample) {
+func (wr *WebrtcRepository) removeTrack(t *webrtc.TrackLocalStaticRTP) {
 	wr.listLock.Lock()
 	defer func() {
 		wr.listLock.Unlock()
@@ -329,32 +329,19 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		panic(err)
 	}
-	//////////////////////////////
-	// params := transceiver.Sender().GetParameters()
-	// for i := range params.Encodings {
-	// 	// params.Encodings[i].RID = webrtc.string(StatsTypeReceiver) (5000000) // 5 Mbps
-	// 	params.Encodings[i].SSRC = 1.0 // Оставить разрешение как есть
-	// }
 
-	// err = transceiver.Sender().AddEncoding(transceiver.Sender().Track())
-	// if err != nil {
+	// rtpTrack, errTrack := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion")
+	// if errTrack != nil {
 	// 	log.Fatal(err)
 	// }
 
-	videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
-		MimeType: "video/h264",
-	}, "pion-rtsp", "pion-rtsp")
-	if err != nil {
-		log.Fatal(err)
-	}
+	// err = wr.addTrack(rtpTrack)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// defer wr.removeTrack(rtpTrack)
 
-	err = wr.addTrack(videoTrack)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer wr.removeTrack(videoTrack)
-
-	go rtspConsumerV2(videoTrack, "rtsp://localhost:8554")
+	// go rtspConsumer(rtpTrack, "rtsp://localhost:8554")
 
 	processRTCP := func(rtpSender *webrtc.RTPSender) {
 		rtcpBuf := make([]byte, 1500)
@@ -406,24 +393,10 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 				return
 			}
 		case "publish":
-			i++
-			videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
-				MimeType: "video/h264",
-			}, "pion-"+strconv.Itoa(i), "pion-"+strconv.Itoa(i))
-			if err != nil {
-				log.Fatal(err)
-			}
-
 			rtspUrl := strings.Replace(message.Data, "\"", "", -1)
 			fmt.Println(rtspUrl)
 
-			err = wr.addTrack(videoTrack)
-			if err != nil {
-				log.Fatal(err)
-			}
-			defer wr.removeTrack(videoTrack)
-
-			go rtspConsumerV2(videoTrack, rtspUrl)
+			wr.publishNewStream(rtspUrl)
 		}
 	}
 }
@@ -442,147 +415,66 @@ func (t *threadSafeWriter) WriteJSON(v interface{}) error {
 }
 
 func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
-	videoTrack, err := webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{
-		MimeType: "video/h264",
-	}, "pion-rtsp", "pion-rtsp")
+	i++
+	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "pion-"+strconv.Itoa(i), "pion-"+strconv.Itoa(i))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = wr.addTrack(rtpTrack)
 	if err != nil {
 		return err
 	}
 
-	err = wr.addTrack(videoTrack)
-	if err != nil {
-		return err
-	}
-
-	go rtspConsumerV2(videoTrack, rtspUrl)
+	go rtspConsumer(rtpTrack, rtspUrl)
 
 	return nil
 }
 
-// Connect to an RTSP URL and pull media.
-// Convert H264 to Annex-B, then write to outboundVideoTrack which sends to all PeerConnections
-func rtspConsumer(track *webrtc.TrackLocalStaticSample, rtspUrl string) {
-	annexbNALUStartCode := func() []byte { return []byte{0x00, 0x00, 0x00, 0x01} }
+func rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) {
+	c := gortsplib.Client{}
 
-	for {
-		session, err := rtsp.Dial(rtspUrl)
-		if err != nil {
-			panic(err)
-		}
-		session.RtpKeepAliveTimeout = 10 * time.Second
-
-		codecs, err := session.Streams()
-		if err != nil {
-			panic(err)
-		}
-		for i, t := range codecs {
-			log.Println("Stream", i, "is of type", t.Type().String())
-		}
-		if codecs[0].Type() != av.H264 {
-			panic("RTSP feed must begin with a H264 codec")
-		}
-		if len(codecs) != 1 {
-			log.Println("Ignoring all but the first stream.")
-		}
-
-		var previousTime time.Duration
-		for {
-			pkt, err := session.ReadPacket()
-			if err != nil {
-				break
-			}
-
-			if pkt.Idx != 0 {
-				//audio or other stream, skip it
-				continue
-			}
-
-			pkt.Data = pkt.Data[4:]
-
-			// For every key-frame pre-pend the SPS and PPS
-			if pkt.IsKeyFrame {
-				pkt.Data = append(annexbNALUStartCode(), pkt.Data...)
-				pkt.Data = append(codecs[0].(h264parser.CodecData).PPS(), pkt.Data...)
-				pkt.Data = append(annexbNALUStartCode(), pkt.Data...)
-				pkt.Data = append(codecs[0].(h264parser.CodecData).SPS(), pkt.Data...)
-				pkt.Data = append(annexbNALUStartCode(), pkt.Data...)
-			}
-
-			bufferDuration := pkt.Time - previousTime
-			previousTime = pkt.Time
-			if err = track.WriteSample(media.Sample{Data: pkt.Data, Duration: bufferDuration}); err != nil && err != io.ErrClosedPipe {
-				panic(err)
-			}
-		}
-
-		if err = session.Close(); err != nil {
-			log.Println("session Close error", err)
-		}
-
-		time.Sleep(1 * time.Second)
-	}
-}
-
-func rtspConsumerV2(track *webrtc.TrackLocalStaticSample, rtspUrl string) {
-	RTSPClient, err := rtspv2.Dial(rtspv2.RTSPClientOptions{URL: rtspUrl, DisableAudio: true, DialTimeout: 3 * time.Second, ReadWriteTimeout: 3 * time.Second, Debug: true})
+	// parse URL
+	u, err := base.ParseURL(rtspUrl)
 	if err != nil {
 		panic(err)
 	}
-	var previousTime time.Duration
-	for {
-		select {
-		case packetAV := <-RTSPClient.OutgoingPacketQueue:
-			if packetAV.IsKeyFrame {
-				bufferDuration := packetAV.Time - previousTime
-				previousTime = packetAV.Time
-				if err = track.WriteSample(media.Sample{Data: packetAV.Data, Duration: bufferDuration}); err != nil && err != io.ErrClosedPipe {
-					panic(err)
-				}
-			}
-		}
-	}
-}
 
-// func RTSPWorker(name, url string, OnDemand, DisableAudio, Debug bool) error {
-// 	keyTest := time.NewTimer(20 * time.Second)
-// 	clientTest := time.NewTimer(20 * time.Second)
-// 	//add next TimeOut
-// 	RTSPClient, err := rtspv2.Dial(rtspv2.RTSPClientOptions{URL: url, DisableAudio: DisableAudio, DialTimeout: 3 * time.Second, ReadWriteTimeout: 3 * time.Second, Debug: Debug})
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer RTSPClient.Close()
-// 	if RTSPClient.CodecData != nil {
-// 		Config.coAd(name, RTSPClient.CodecData)
-// 	}
-// 	var AudioOnly bool
-// 	if len(RTSPClient.CodecData) == 1 && RTSPClient.CodecData[0].Type().IsAudio() {
-// 		AudioOnly = true
-// 	}
-// for {
-// 	select {
-// 	case <-clientTest.C:
-// 		if OnDemand {
-// 			if !Config.HasViewer(name) {
-// 				return ErrorStreamExitNoViewer
-// 			} else {
-// 				clientTest.Reset(20 * time.Second)
-// 			}
-// 		}
-// 	case <-keyTest.C:
-// 		return ErrorStreamExitNoVideoOnStream
-// 	case signals := <-RTSPClient.Signals:
-// 		switch signals {
-// 		case rtspv2.SignalCodecUpdate:
-// 			Config.coAd(name, RTSPClient.CodecData)
-// 		case rtspv2.SignalStreamRTPStop:
-// 			return ErrorStreamExitRtspDisconnect
-// 		}
-// 	case packetAV := <-RTSPClient.OutgoingPacketQueue:
-// 		if AudioOnly || packetAV.IsKeyFrame {
-// 			keyTest.Reset(20 * time.Second)
-// 		}
-// 		Config.cast(name, *packetAV)
-// 	}
-// }
-// }
+	// connect to the server
+	err = c.Start(u.Scheme, u.Host)
+	if err != nil {
+		panic(err)
+	}
+	defer c.Close()
+
+	// find available medias
+	desc, _, err := c.Describe(u)
+	if err != nil {
+		panic(err)
+	}
+
+	// setup all medias
+	err = c.SetupAll(desc.BaseURL, desc.Medias)
+	if err != nil {
+		panic(err)
+	}
+
+	// called when a RTP packet arrives
+	c.OnPacketRTPAny(func(medi *description.Media, forma format.Format, pkt *rtp.Packet) {
+		track.WriteRTP(pkt)
+	})
+
+	// called when a RTCP packet arrives
+	c.OnPacketRTCPAny(func(medi *description.Media, pkt rtcp.Packet) {
+		log.Printf("RTCP packet from media %v, type %T\n", medi, pkt)
+	})
+
+	// start playing
+	_, err = c.Play(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	// wait until a fatal error
+	panic(c.Wait())
+}

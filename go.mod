@@ -3,7 +3,6 @@ module video-handler
 go 1.21.5
 
 require (
-	github.com/deepch/vdk v0.0.27
 	github.com/go-chi/chi v1.5.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1

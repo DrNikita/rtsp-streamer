@@ -48,7 +48,7 @@ func main() {
 
 	httpRepository.RegisterRoutes(r)
 
-	webrtcRespository := internal.NewWebrtcRepository()
+	webrtcRespository := internal.NewWebrtcRepository(logger)
 	webrtcRespository.InitConnection(r)
 	webrtcRespository.RegisterRoutes(r)
 

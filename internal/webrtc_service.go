@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -47,9 +48,11 @@ type WebrtcRepository struct {
 	indexTemplate   *template.Template
 	peerConnections []peerConnectionState
 	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
+
+	logger *slog.Logger
 }
 
-func NewWebrtcRepository() *WebrtcRepository {
+func NewWebrtcRepository(logger *slog.Logger) *WebrtcRepository {
 	indexHTML, err := os.ReadFile("./static/index.html")
 	if err != nil {
 		panic(err)
@@ -64,6 +67,8 @@ func NewWebrtcRepository() *WebrtcRepository {
 		listLock:        sync.RWMutex{},
 		peerConnections: make([]peerConnectionState, 0),
 		trackLocals:     map[string]*webrtc.TrackLocalStaticRTP{},
+
+		logger: logger,
 	}
 }
 
@@ -426,23 +431,25 @@ func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
 		return err
 	}
 
-	go rtspConsumer(rtpTrack, rtspUrl)
+	go wr.rtspConsumer(rtpTrack, rtspUrl)
 
 	return nil
 }
 
-func rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) {
+func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) {
 	c := gortsplib.Client{}
 
 	// parse URL
 	u, err := base.ParseURL(rtspUrl)
 	if err != nil {
+		wr.logger.Error(err.Error())
 		panic(err)
 	}
 
 	// connect to the server
 	err = c.Start(u.Scheme, u.Host)
 	if err != nil {
+		wr.logger.Error(err.Error())
 		panic(err)
 	}
 	defer c.Close()
@@ -450,12 +457,14 @@ func rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) {
 	// find available medias
 	desc, _, err := c.Describe(u)
 	if err != nil {
+		wr.logger.Error(err.Error())
 		panic(err)
 	}
 
 	// setup all medias
 	err = c.SetupAll(desc.BaseURL, desc.Medias)
 	if err != nil {
+		wr.logger.Error(err.Error())
 		panic(err)
 	}
 
@@ -472,9 +481,13 @@ func rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) {
 	// start playing
 	_, err = c.Play(nil)
 	if err != nil {
+		wr.logger.Error(err.Error())
 		panic(err)
 	}
 
 	// wait until a fatal error
-	panic(c.Wait())
+	err = c.Wait()
+	if err != nil {
+		wr.logger.Error(err.Error())
+	}
 }

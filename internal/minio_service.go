@@ -5,7 +5,6 @@ import (
 	"io"
 	"log"
 	"log/slog"
-	"net"
 	"strings"
 	"video-handler/configs"
 
@@ -39,7 +38,7 @@ func NewVideoService(ctx context.Context, envs *configs.EnvVariables, minioEnvs 
 	}, nil
 }
 
-func (service *VideoService) stream(sourseVideName, rtspUrl string) error {
+func (service *VideoService) streamVideoToServer(sourseVideName, rtspUrl string) error {
 	video, err := service.MinioClient.GetObject(service.Context, service.MinioEnvs.Bucket, sourseVideName, minio.GetObjectOptions{})
 	if err != nil {
 		return err
@@ -60,21 +59,6 @@ func extractFileNameComponents(fileName string) (string, string) {
 		return strings.Join(fileComponents[:len(fileComponents)-1], ""), fileComponents[len(fileComponents)-1]
 	}
 	return "", ""
-}
-
-func findFreePort() (int, error) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return 0, err
-	}
-
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-
-	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 func GetMinioConnection(accessKey, secretKey, endpoint string, ssl bool) (*minio.Client, error) {

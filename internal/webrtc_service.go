@@ -49,10 +49,12 @@ type WebrtcRepository struct {
 	peerConnections []peerConnectionState
 	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
 
+	streamerService *StreamerService
+
 	logger *slog.Logger
 }
 
-func NewWebrtcRepository(logger *slog.Logger) *WebrtcRepository {
+func NewWebrtcRepository(streamerService *StreamerService, logger *slog.Logger) *WebrtcRepository {
 	indexHTML, err := os.ReadFile("./static/index.html")
 	if err != nil {
 		panic(err)
@@ -67,6 +69,8 @@ func NewWebrtcRepository(logger *slog.Logger) *WebrtcRepository {
 		listLock:        sync.RWMutex{},
 		peerConnections: make([]peerConnectionState, 0),
 		trackLocals:     map[string]*webrtc.TrackLocalStaticRTP{},
+
+		streamerService: streamerService,
 
 		logger: logger,
 	}

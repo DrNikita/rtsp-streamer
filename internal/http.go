@@ -3,14 +3,9 @@ package internal
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"sync"
 	"video-handler/configs"
-	"video-handler/internal/rtspserver"
 
 	"github.com/go-chi/chi"
 )
@@ -24,65 +19,8 @@ type HttpRepository struct {
 }
 
 func (respository *HttpRepository) RegisterRoutes(r chi.Router) {
-	r.Post("/stream", respository.stream)
 	r.Post("/upload", respository.upload)
 	r.Get("/video-list", respository.videoList)
-	// r.Get("/video", respository.video)
-}
-
-func (repository *HttpRepository) stream(w http.ResponseWriter, r *http.Request) {
-	freePort, err := findFreePort()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	}
-
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		wg.Done()
-		rtspServer := rtspserver.ConfigureRtspServer(":"+strconv.Itoa(freePort), repository.Context)
-		err := rtspServer.StartAndWait()
-		if err != nil {
-			repository.CtxCancel()
-		}
-	}()
-
-	wg.Wait()
-
-	rtspUrl := fmt.Sprintf("%s:%d", repository.Envs.RtspStreamUrlPattern, freePort)
-
-	var responseBody struct {
-		VideoName string `json:"source_video"`
-	}
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	}
-
-	err = json.Unmarshal(bodyBytes, &responseBody)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	}
-
-	wg.Add(1)
-	go func() {
-		wg.Done()
-		err = repository.Service.stream(responseBody.VideoName, rtspUrl)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-	}()
-
-	wg.Wait()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(struct {
-		RtspUrl string `json:"rtsp_url"`
-	}{
-		RtspUrl: rtspUrl,
-	})
 }
 
 func (repository *HttpRepository) upload(w http.ResponseWriter, r *http.Request) {

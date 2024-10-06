@@ -47,8 +47,6 @@ func (service *StreamerService) createVideoStream(videoName string) (string, err
 		}
 	}()
 
-	wg.Wait()
-
 	rtspUrl := fmt.Sprintf("%s:%d", service.Envs.RtspStreamUrlPattern, freePort)
 	service.Logger.Debug("RTSP server configured and running", "RTSP_URL", rtspUrl)
 
@@ -62,8 +60,6 @@ func (service *StreamerService) createVideoStream(videoName string) (string, err
 	}()
 
 	wg.Wait()
-
-	// time.Sleep(1 * time.Hour)
 
 	return rtspUrl, nil
 }

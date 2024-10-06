@@ -396,7 +396,7 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 				return
 			}
 
-			time.Sleep(10 * time.Second)
+			time.Sleep(1 * time.Second)
 
 			wr.publishNewStream(rtspUrl)
 		}

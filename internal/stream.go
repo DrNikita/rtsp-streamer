@@ -12,20 +12,20 @@ import (
 )
 
 type StreamerService struct {
-	Service   *VideoService
-	Envs      *configs.EnvVariables
-	Logger    *slog.Logger
-	Context   context.Context
-	CtxCancel context.CancelFunc
+	VideoService *VideoService
+	Envs         *configs.EnvVariables
+	Logger       *slog.Logger
+	Context      context.Context
+	CtxCancel    context.CancelFunc
 }
 
 func NewStreamerService(service *VideoService, envs *configs.EnvVariables, logger *slog.Logger, ctx context.Context, ctxCancel context.CancelFunc) *StreamerService {
 	return &StreamerService{
-		Service:   service,
-		Envs:      envs,
-		Logger:    logger,
-		Context:   ctx,
-		CtxCancel: ctxCancel,
+		VideoService: service,
+		Envs:         envs,
+		Logger:       logger,
+		Context:      ctx,
+		CtxCancel:    ctxCancel,
 	}
 }
 
@@ -50,17 +50,20 @@ func (service *StreamerService) createVideoStream(videoName string) (string, err
 	wg.Wait()
 
 	rtspUrl := fmt.Sprintf("%s:%d", service.Envs.RtspStreamUrlPattern, freePort)
+	service.Logger.Debug("RTSP server configured and running", "RTSP_URL", rtspUrl)
 
 	wg.Add(1)
 	go func() {
 		wg.Done()
-		err = service.Service.streamVideoToServer(videoName, rtspUrl)
+		err = service.VideoService.streamVideoToServer(videoName, rtspUrl)
 		if err != nil {
 			service.CtxCancel()
 		}
 	}()
 
 	wg.Wait()
+
+	// time.Sleep(1 * time.Hour)
 
 	return rtspUrl, nil
 }

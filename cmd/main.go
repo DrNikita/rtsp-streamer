@@ -48,9 +48,10 @@ func main() {
 
 	httpRepository.RegisterRoutes(r)
 
-	webrtcRespository := internal.NewWebrtcRepository(logger)
+	streamerService := internal.NewStreamerService(service, envs, logger, ctx, cancel)
+
+	webrtcRespository := internal.NewWebrtcRepository(streamerService, logger)
 	webrtcRespository.InitConnection(r)
-	webrtcRespository.RegisterRoutes(r)
 
 	logger.Info("server started and running on port :" + envs.ServerPort)
 	err = http.ListenAndServe(envs.ServerHost+":"+envs.ServerPort, r)

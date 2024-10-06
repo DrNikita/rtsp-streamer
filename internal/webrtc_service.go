@@ -9,8 +9,6 @@ package internal
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -76,37 +74,37 @@ func NewWebrtcRepository(streamerService *StreamerService, logger *slog.Logger) 
 	}
 }
 
-func (wr *WebrtcRepository) RegisterRoutes(r chi.Router) {
-	r.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
-		var response struct {
-			Error   string `json:"error,omitempty"`
-			Success string `json:"success,omitempty"`
-		}
+// func (wr *WebrtcRepository) RegisterRoutes(r chi.Router) {
+// 	r.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
+// 		var response struct {
+// 			Error   string `json:"error,omitempty"`
+// 			Success string `json:"success,omitempty"`
+// 		}
 
-		var requestBody struct {
-			VideoSource string `json:"rtsp_url"`
-		}
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		}
+// 		var requestBody struct {
+// 			VideoSource string `json:"rtsp_url"`
+// 		}
+// 		bodyBytes, err := io.ReadAll(r.Body)
+// 		if err != nil {
+// 			http.Error(w, err.Error(), http.StatusBadRequest)
+// 		}
 
-		err = json.Unmarshal(bodyBytes, &requestBody)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-		}
+// 		err = json.Unmarshal(bodyBytes, &requestBody)
+// 		if err != nil {
+// 			http.Error(w, err.Error(), http.StatusBadRequest)
+// 		}
 
-		w.Header().Set("Content-Type", "application/json")
+// 		w.Header().Set("Content-Type", "application/json")
 
-		// err = wr.publishNewStream(requestBody.VideoSource)
-		// if err != nil {
-		// 	http.Error(w, err.Error(), http.StatusBadRequest)
-		// }
+// 		err = wr.publishNewStream(requestBody.VideoSource)
+// 		if err != nil {
+// 			http.Error(w, err.Error(), http.StatusBadRequest)
+// 		}
 
-		response.Success = "success"
-		json.NewEncoder(w).Encode(response)
-	})
-}
+// 		response.Success = "success"
+// 		json.NewEncoder(w).Encode(response)
+// 	})
+// }
 
 func (wr *WebrtcRepository) InitConnection(r chi.Router) {
 	r.HandleFunc("/websocket", wr.websocketHandler)
@@ -339,19 +337,6 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 		panic(err)
 	}
 
-	// rtpTrack, errTrack := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "video", "pion")
-	// if errTrack != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// err = wr.addTrack(rtpTrack)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer wr.removeTrack(rtpTrack)
-
-	// go rtspConsumer(rtpTrack, "rtsp://localhost:8554")
-
 	processRTCP := func(rtpSender *webrtc.RTPSender) {
 		rtcpBuf := make([]byte, 1500)
 		for {
@@ -393,17 +378,25 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 		case "answer":
 			answer := webrtc.SessionDescription{}
 			if err := json.Unmarshal([]byte(message.Data), &answer); err != nil {
-				log.Println(err)
+				wr.logger.Error("", "err", err.Error())
 				return
 			}
 
 			if err := peerConnection.SetRemoteDescription(answer); err != nil {
-				log.Println(err)
+				wr.logger.Error("", "err", err.Error())
 				return
 			}
 		case "publish":
-			rtspUrl := strings.Replace(message.Data, "\"", "", -1)
-			fmt.Println(rtspUrl)
+			videoName := strings.Replace(message.Data, "\"", "", -1)
+			wr.logger.Debug("video name received", "data", videoName)
+
+			rtspUrl, err := wr.streamerService.createVideoStream(videoName)
+			if err != nil {
+				wr.logger.Error("", "err", err.Error())
+				return
+			}
+
+			time.Sleep(10 * time.Second)
 
 			wr.publishNewStream(rtspUrl)
 		}
@@ -446,7 +439,7 @@ func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtsp
 	// parse URL
 	u, err := base.ParseURL(rtspUrl)
 	if err != nil {
-		wr.logger.Error(err.Error())
+		wr.logger.Error("failed to parse url", "RTSP_URL", rtspUrl, "err", err.Error())
 		panic(err)
 	}
 
@@ -461,7 +454,7 @@ func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtsp
 	// find available medias
 	desc, _, err := c.Describe(u)
 	if err != nil {
-		wr.logger.Error(err.Error())
+		wr.logger.Error("failed to describe url", "RTSP_URL", rtspUrl, "err", err.Error())
 		panic(err)
 	}
 

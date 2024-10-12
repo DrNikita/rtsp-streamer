@@ -26,6 +26,7 @@ type EnvVariables struct {
 	FfmpegConversionBitrate       string `envconfig:"FFMPEG_CONVERSION_BITRATE"`
 	ExternalSetupServerUrl        string `envconfig:"EXTERNAL_SETUP_SERVER_URL"`
 	Timeout                       int    `envconfig:"TIMEOUT"`
+	WebSocketAddress              string `envconfig:"WEBSOCKET_ADDRESS"`
 }
 
 func MustConfig() *EnvVariables {

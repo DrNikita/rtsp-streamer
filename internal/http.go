@@ -5,22 +5,49 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 	"video-handler/configs"
 
 	"github.com/go-chi/chi"
 )
 
-type HttpRepository struct {
-	Service   *VideoService
-	Envs      *configs.EnvVariables
-	Logger    *slog.Logger
-	Context   context.Context
-	CtxCancel context.CancelFunc
+type Response struct {
+	Status       int
+	IsConverting bool
+	Result       any
+	Error        string
 }
 
-func (respository *HttpRepository) RegisterRoutes(r chi.Router) {
-	r.Post("/upload", respository.upload)
-	r.Get("/video-list", respository.videoList)
+type HttpRepository struct {
+	VideoService     *VideoService
+	WebrtcRepository *WebrtcRepository
+	Config           *configs.EnvVariables
+	Logger           *slog.Logger
+	Context          context.Context
+	CtxCancel        context.CancelFunc
+}
+
+func NewHttpRepository() {
+}
+
+func (repository *HttpRepository) RegisterRoutes(r chi.Router) {
+	r.Post("/upload", repository.upload)
+	r.Get("/video-list", repository.videoList)
+	r.HandleFunc("/websocket", repository.WebrtcRepository.websocketHandler)
+
+	/*
+		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if err := repository.WebrtcRepository.indexTemplate.Execute(w, repository.Config.WebSocketAddress); err != nil {
+				log.Fatal(err)
+			}
+		})
+	*/
+
+	go func() {
+		for range time.NewTicker(time.Second * 1).C {
+			repository.WebrtcRepository.dispatchKeyFrame()
+		}
+	}()
 }
 
 func (repository *HttpRepository) upload(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +64,7 @@ func (repository *HttpRepository) upload(w http.ResponseWriter, r *http.Request)
 	}
 	defer buffer.Close()
 
-	conversionNeed, err := repository.Service.processVideoContainer(buffer, handler)
+	conversionNeed, err := repository.VideoService.processVideoContainer(buffer, handler)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(Response{
@@ -51,7 +78,7 @@ func (repository *HttpRepository) upload(w http.ResponseWriter, r *http.Request)
 	buffer.Seek(0, 0)
 
 	if !conversionNeed {
-		uploadInfo, err := repository.Service.UploadVideo(buffer, handler.Filename)
+		uploadInfo, err := repository.VideoService.UploadVideo(buffer, handler.Filename)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
@@ -74,33 +101,10 @@ func (repository *HttpRepository) upload(w http.ResponseWriter, r *http.Request)
 }
 
 func (repository *HttpRepository) videoList(w http.ResponseWriter, r *http.Request) {
-	videos, err := repository.Service.GetVideoList()
+	videos, err := repository.VideoService.GetVideoList()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	}
 
 	json.NewEncoder(w).Encode(videos)
 }
-
-/*
-func (repository *HttpRepository) video(w http.ResponseWriter, r *http.Request) {
-	videoName := r.URL.Query().Get("videoName")
-	video, err := repository.Service.GetVideo(videoName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	defer video.Close()
-
-	cmd := exec.Command("ffmpeg", "-i", "pipe:0", "-c:v", "libx264", "SUCCESS111111.mp4")
-	cmd.Stdin = video
-
-	err = cmd.Run()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.ServeFile(w, r, "SUCCESS111111.mp4")
-}
-*/

@@ -23,6 +23,7 @@
   </body>
 
   <script>
+    require('dotenv').config();
     let pc = new RTCPeerConnection()
 
     pc.ontrack = function (event) {
@@ -55,7 +56,7 @@
       }
     }
 
-    let ws = new WebSocket("{{.}}")
+    let ws = new WebSocket(process.env.WEBSOCKET_ADDRESS)
 
     // Отправка ICE-кандидатов
     pc.onicecandidate = e => {

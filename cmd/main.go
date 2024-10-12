@@ -36,22 +36,21 @@ func main() {
 		panic(err)
 	}
 
+	streamerService := internal.NewStreamerService(service, envs, logger, ctx, cancel)
+	webrtcRespository := internal.NewWebrtcRepository(streamerService, logger)
+
 	httpRepository := &internal.HttpRepository{
-		Service:   service,
-		Envs:      envs,
-		Logger:    logger,
-		Context:   ctxTimeout,
-		CtxCancel: cancel,
+		VideoService:     service,
+		WebrtcRepository: webrtcRespository,
+		Config:           envs,
+		Logger:           logger,
+		Context:          ctxTimeout,
+		CtxCancel:        cancel,
 	}
 
 	r := chi.NewRouter()
 
 	httpRepository.RegisterRoutes(r)
-
-	streamerService := internal.NewStreamerService(service, envs, logger, ctx, cancel)
-
-	webrtcRespository := internal.NewWebrtcRepository(streamerService, logger)
-	webrtcRespository.InitConnection(r)
 
 	logger.Info("server started and running on port :" + envs.ServerPort)
 	err = http.ListenAndServe(envs.ServerHost+":"+envs.ServerPort, r)

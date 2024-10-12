@@ -23,7 +23,6 @@ import (
 	"github.com/bluenviron/gortsplib/v4/pkg/base"
 	"github.com/bluenviron/gortsplib/v4/pkg/description"
 	"github.com/bluenviron/gortsplib/v4/pkg/format"
-	"github.com/go-chi/chi"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
@@ -31,14 +30,6 @@ import (
 )
 
 var i int
-
-type WebrtcManager interface {
-	addTrack(t *webrtc.TrackLocalStaticSample) error
-	removeTrack(t *webrtc.TrackLocalStaticSample)
-	signalPeerConnections()
-	dispatchKeyFrame()
-	websocketHandler(w http.ResponseWriter, r *http.Request)
-}
 
 type WebrtcRepository struct {
 	upgrader        websocket.Upgrader
@@ -72,56 +63,6 @@ func NewWebrtcRepository(streamerService *StreamerService, logger *slog.Logger) 
 
 		logger: logger,
 	}
-}
-
-// func (wr *WebrtcRepository) RegisterRoutes(r chi.Router) {
-// 	r.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
-// 		var response struct {
-// 			Error   string `json:"error,omitempty"`
-// 			Success string `json:"success,omitempty"`
-// 		}
-
-// 		var requestBody struct {
-// 			VideoSource string `json:"rtsp_url"`
-// 		}
-// 		bodyBytes, err := io.ReadAll(r.Body)
-// 		if err != nil {
-// 			http.Error(w, err.Error(), http.StatusBadRequest)
-// 		}
-
-// 		err = json.Unmarshal(bodyBytes, &requestBody)
-// 		if err != nil {
-// 			http.Error(w, err.Error(), http.StatusBadRequest)
-// 		}
-
-// 		w.Header().Set("Content-Type", "application/json")
-
-// 		err = wr.publishNewStream(requestBody.VideoSource)
-// 		if err != nil {
-// 			http.Error(w, err.Error(), http.StatusBadRequest)
-// 		}
-
-// 		response.Success = "success"
-// 		json.NewEncoder(w).Encode(response)
-// 	})
-// }
-
-func (wr *WebrtcRepository) InitConnection(r chi.Router) {
-	r.HandleFunc("/websocket", wr.websocketHandler)
-
-	// index.html handler
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if err := wr.indexTemplate.Execute(w, "ws://"+r.Host+"/websocket"); err != nil {
-			log.Fatal(err)
-		}
-	})
-
-	// request a keyframe every 3 seconds
-	go func() {
-		for range time.NewTicker(time.Microsecond * 500).C {
-			wr.dispatchKeyFrame()
-		}
-	}()
 }
 
 type websocketMessage struct {

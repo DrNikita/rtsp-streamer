@@ -26,31 +26,21 @@ func main() {
 	ctxTimeout, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	service, err := internal.NewVideoService(ctxTimeout, envs, minioConfig, logger)
+	videoService, err := internal.NewVideoService(ctxTimeout, envs, minioConfig, logger)
 	if err != nil {
 		panic(err)
 	}
 
-	err = service.CreateBucket(ctxTimeout)
+	err = videoService.CreateBucket(ctxTimeout)
 	if err != nil {
 		panic(err)
-	}
-
-	httpRepository := &internal.HttpRepository{
-		Service:   service,
-		Envs:      envs,
-		Logger:    logger,
-		Context:   ctxTimeout,
-		CtxCancel: cancel,
 	}
 
 	r := chi.NewRouter()
 
-	httpRepository.RegisterRoutes(r)
+	streamerService := internal.NewStreamerService(videoService, envs, logger, ctx, cancel)
 
-	streamerService := internal.NewStreamerService(service, envs, logger, ctx, cancel)
-
-	webrtcRespository := internal.NewWebrtcRepository(streamerService, logger)
+	webrtcRespository := internal.NewWebrtcRepository(streamerService, videoService, envs, logger, &ctx)
 	webrtcRespository.InitConnection(r)
 
 	logger.Info("server started and running on port :" + envs.ServerPort)

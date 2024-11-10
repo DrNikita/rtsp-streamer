@@ -1,13 +1,7 @@
-// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
-// SPDX-License-Identifier: MIT
-
-//go:build !js
-// +build !js
-
-// sfu-ws is a many-to-many websocket based SFU
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"log/slog"
@@ -18,6 +12,7 @@ import (
 	"sync"
 	"text/template"
 	"time"
+	"video-handler/configs"
 
 	"github.com/bluenviron/gortsplib/v4"
 	"github.com/bluenviron/gortsplib/v4/pkg/base"
@@ -46,13 +41,14 @@ type WebrtcRepository struct {
 	indexTemplate   *template.Template
 	peerConnections []peerConnectionState
 	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
-
 	streamerService *StreamerService
-
-	logger *slog.Logger
+	videoService    *VideoService
+	envs            *configs.EnvVariables
+	logger          *slog.Logger
+	ctx             *context.Context
 }
 
-func NewWebrtcRepository(streamerService *StreamerService, logger *slog.Logger) *WebrtcRepository {
+func NewWebrtcRepository(streamerService *StreamerService, videoService *VideoService, envs *configs.EnvVariables, logger *slog.Logger, ctx *context.Context) *WebrtcRepository {
 	indexHTML, err := os.ReadFile("./static/index.html")
 	if err != nil {
 		panic(err)
@@ -69,44 +65,18 @@ func NewWebrtcRepository(streamerService *StreamerService, logger *slog.Logger) 
 		trackLocals:     map[string]*webrtc.TrackLocalStaticRTP{},
 
 		streamerService: streamerService,
+		videoService:    videoService,
+		envs:            envs,
 
 		logger: logger,
+		ctx:    ctx,
 	}
 }
 
-// func (wr *WebrtcRepository) RegisterRoutes(r chi.Router) {
-// 	r.HandleFunc("/publish", func(w http.ResponseWriter, r *http.Request) {
-// 		var response struct {
-// 			Error   string `json:"error,omitempty"`
-// 			Success string `json:"success,omitempty"`
-// 		}
-
-// 		var requestBody struct {
-// 			VideoSource string `json:"rtsp_url"`
-// 		}
-// 		bodyBytes, err := io.ReadAll(r.Body)
-// 		if err != nil {
-// 			http.Error(w, err.Error(), http.StatusBadRequest)
-// 		}
-
-// 		err = json.Unmarshal(bodyBytes, &requestBody)
-// 		if err != nil {
-// 			http.Error(w, err.Error(), http.StatusBadRequest)
-// 		}
-
-// 		w.Header().Set("Content-Type", "application/json")
-
-// 		err = wr.publishNewStream(requestBody.VideoSource)
-// 		if err != nil {
-// 			http.Error(w, err.Error(), http.StatusBadRequest)
-// 		}
-
-// 		response.Success = "success"
-// 		json.NewEncoder(w).Encode(response)
-// 	})
-// }
-
 func (wr *WebrtcRepository) InitConnection(r chi.Router) {
+	r.Post("/upload", wr.upload)
+	r.Get("/video-list", wr.videoList)
+
 	r.HandleFunc("/websocket", wr.websocketHandler)
 
 	// index.html handler
@@ -122,6 +92,65 @@ func (wr *WebrtcRepository) InitConnection(r chi.Router) {
 			wr.dispatchKeyFrame()
 		}
 	}()
+}
+
+func (wr *WebrtcRepository) upload(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(1000000)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	buffer, handler, err := r.FormFile("video")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer buffer.Close()
+
+	conversionNeed, err := wr.videoService.processVideoContainer(buffer, handler)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Response{
+			Status:       http.StatusBadRequest,
+			IsConverting: false,
+			Error:        err.Error(),
+		})
+		return
+	}
+
+	buffer.Seek(0, 0)
+
+	if !conversionNeed {
+		uploadInfo, err := wr.videoService.UploadVideo(buffer, handler.Filename)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+		wr.logger.Info("video doesn't need conversion and was updloaded successfully", "video_name", uploadInfo.Key, "video_size", uploadInfo.Size)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Response{
+			Status:       http.StatusOK,
+			IsConverting: true,
+			Result:       uploadInfo,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(Response{
+		Status:       http.StatusOK,
+		IsConverting: false,
+		Result:       "vide uploaded successfully",
+	})
+}
+
+func (wr *WebrtcRepository) videoList(w http.ResponseWriter, r *http.Request) {
+	videos, err := wr.videoService.GetVideoList()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}
+
+	json.NewEncoder(w).Encode(videos)
 }
 
 type websocketMessage struct {
@@ -147,14 +176,14 @@ func (wr *WebrtcRepository) addTrack(t *webrtc.TrackLocalStaticRTP) error {
 }
 
 // Remove from list of tracks and fire renegotation for all PeerConnections
-func (wr *WebrtcRepository) removeTrack(t *webrtc.TrackLocalStaticRTP) {
+func (wr *WebrtcRepository) removeTrack(trackID string) {
 	wr.listLock.Lock()
 	defer func() {
 		wr.listLock.Unlock()
 		wr.signalPeerConnections()
 	}()
 
-	delete(wr.trackLocals, t.ID())
+	delete(wr.trackLocals, trackID)
 }
 
 // signalPeerConnections updates each PeerConnection so that it is getting all the expected media tracks
@@ -398,7 +427,18 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 
 			time.Sleep(1 * time.Second)
 
+			//retrun streamID which will indicate stream;
 			wr.publishNewStream(rtspUrl)
+			// streamID, err := wr.publishNewStream(rtspUrl)
+			// if err != nil {
+			// 	return err
+			// }
+			// return streamID
+			// case "remove":
+			// 	videoName := strings.Replace(message.Data, "\"", "", -1)
+			// 	wr.logger.Debug("video name received", "data", videoName)
+
+			// 	wr.removeTrack()
 		}
 	}
 }
@@ -416,21 +456,21 @@ func (t *threadSafeWriter) WriteJSON(v interface{}) error {
 	return t.Conn.WriteJSON(v)
 }
 
-func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
+func (wr *WebrtcRepository) publishNewStream(rtspUrl string) (string, error) {
 	i++
 	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "pion-"+strconv.Itoa(i), "pion-"+strconv.Itoa(i))
 	if err != nil {
-		log.Fatal(err)
+		return "", err
 	}
 
 	err = wr.addTrack(rtpTrack)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	go wr.rtspConsumer(rtpTrack, rtspUrl)
 
-	return nil
+	return rtpTrack.ID(), nil
 }
 
 func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) {

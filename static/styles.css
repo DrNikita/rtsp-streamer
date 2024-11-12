@@ -1,0 +1,131 @@
+/* Основные стили */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  background-color: #f5f5f5;
+  color: #333;
+  display: flex;
+}
+
+/* Стили для боковой панели */
+#sidebar {
+  width: 300px;
+  background-color: #4CAF50;
+  color: white;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-top-right-radius: 10px;
+  border-bottom-right-radius: 10px;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Заголовок бокового меню, стиль шрифта и подсветка */
+#sidebar h3 {
+  margin-bottom: 20px;
+  font-weight: bold;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.898);
+  letter-spacing: 1px;
+  text-shadow: 1px 1px 5px hwb(197 0% 0% / 0.747);
+  border: 1px solid hsla(180, 60%, 64%, 0.898);  /* Добавление рамки */
+  padding: 10px; /* Отступы внутри рамки */
+  border-radius: 8px; /* Скругление углов рамки */
+  background-color: #31b975; /* Полупрозрачный фон для выделения */
+}
+
+/* Стили для списка видео */
+#videoList {
+  list-style-type: grid;
+  padding: 10px;
+  width: 100%;
+}
+
+/* Стили для элементов списка */
+#videoList li {
+  background-color: #388E3C;
+  padding: 10px;
+  margin-bottom: 10px;
+  margin-right: 20px;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  height: 40px;
+  box-sizing: border-box;
+  overflow: hidden;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+#videoList li:hover {
+  background-color: #2e7d32;
+  width: 93%;
+  margin-left: 5px;
+}
+
+/* Стили для текста с обрезанием */
+.video-title {
+  flex-grow: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 10px;
+}
+
+/* Стили для разделительной линии */
+.separator {
+  width: 1px;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Стили для кнопки удаления */
+.delete-area {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  height: 100%;
+  cursor: pointer;
+}
+
+/* Стили для крестика удаления */
+.delete-btn {
+  color: white;
+  font-size: 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: color 0.3s;
+}
+
+/* Подсветка только крестика при наведении */
+.delete-area:hover .delete-btn {
+  color: red;
+}
+
+#mainContent {
+  margin-left: 290px;
+  padding: 20px;
+  flex-grow: 1;
+  display: grid;
+  grid-template-columns: repeat(300px, 2fr); /* Два столбца одинаковой ширины */
+  gap: 10px; /* Отступы между элементами */
+}
+
+#mainContent video {
+  width: 100%; /* Видео занимает всю ширину ячейки */
+  border-radius: 8px;
+  margin-right: 10px;
+  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.15);
+}

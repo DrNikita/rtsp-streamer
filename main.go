@@ -40,7 +40,7 @@ func main() {
 
 	streamerService := internal.NewStreamerService(videoService, envs, logger, ctx, cancel)
 
-	webrtcRespository := internal.NewWebrtcRepository(streamerService, videoService, envs, logger, &ctx)
+	webrtcRespository := internal.NewWebrtcRepository(r, streamerService, videoService, envs, logger, &ctx)
 	webrtcRespository.InitConnection(r)
 
 	logger.Info("server started and running on port :" + envs.ServerPort)

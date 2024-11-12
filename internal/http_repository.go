@@ -48,11 +48,15 @@ type WebrtcRepository struct {
 	ctx             *context.Context
 }
 
-func NewWebrtcRepository(streamerService *StreamerService, videoService *VideoService, envs *configs.EnvVariables, logger *slog.Logger, ctx *context.Context) *WebrtcRepository {
+func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoService *VideoService, envs *configs.EnvVariables, logger *slog.Logger, ctx *context.Context) *WebrtcRepository {
+	fs := http.FileServer(http.Dir("./static"))
+	http.Handle("/static/", http.StripPrefix("/static/", fs))
+
 	indexHTML, err := os.ReadFile("./static/index.html")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
+
 	indexTemplate := template.Must(template.New("").Parse(string(indexHTML)))
 
 	return &WebrtcRepository{
@@ -85,6 +89,8 @@ func (wr *WebrtcRepository) InitConnection(r chi.Router) {
 			log.Fatal(err)
 		}
 	})
+
+	r.Handle("/static/styles.css", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
 	// request a keyframe every 3 seconds
 	go func() {

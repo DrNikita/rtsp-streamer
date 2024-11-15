@@ -8,9 +8,15 @@
   </head>
   <body onload="init();">
     <div id="sidebar">
-      <h3>Доступные трансляции</h3>
+      <div class="header">
+        <h4>Доступные трансляции</h4>
+        <button id="addVideoButton" title="Добавить трансляцию">+</button>
+      </div>
+     
       <ul id="videoList"></ul>
-    </div>
+     
+      <input type="file" id="videoFileInput" accept="video/*" style="display: none;">
+    </div>    
 
     <div id="mainContent">
       <div id="remoteVideos"></div>

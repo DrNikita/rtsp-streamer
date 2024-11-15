@@ -108,3 +108,4 @@ func (repository *HttpRepository) videoList(w http.ResponseWriter, r *http.Reque
 
 	json.NewEncoder(w).Encode(videos)
 }
+

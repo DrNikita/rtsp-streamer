@@ -1,119 +1,19 @@
 <!DOCTYPE html>
 <html>
-  <!--
-    SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
-    SPDX-License-Identifier: MIT
-  -->
-
   <head>
+    <base href="/">
     <meta charset="utf-8">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/script.js"></script>
   </head>
-  <body>
-    <h3> Remote Video </h3>
-    <div id="remoteVideos"></div> <br />
+  <body onload="init();">
+    <div id="sidebar">
+      <h3>Доступные трансляции</h3>
+      <ul id="videoList"></ul>
+    </div>
 
-    <h3> Logs </h3>
-    <div id="logs"></div>
-
-    <!-- Добавляем поле для ввода текста и кнопку -->
-    <h3> Publish Event </h3>
-    <input type="text" id="inputMessage" placeholder="Enter message to publish">
-    <button id="publishButton">Publish</button>
-
+    <div id="mainContent">
+      <div id="remoteVideos"></div>
+    </div>
   </body>
-
-  <script>
-    require('dotenv').config();
-    let pc = new RTCPeerConnection()
-
-    pc.ontrack = function (event) {
-      if (event.track.kind === 'audio') {
-        return
-      }
-
-      let el = document.createElement(event.track.kind)
-      el.srcObject = event.streams[0]
-      el.autoplay = true
-      el.controls = true
-
-      el.style.width = '440px';
-      el.style.height = '300px';
-      el.style.marginTop = '10px';
-      el.style.marginBottom = '20px';
-      el.style.marginLeft = '15px';
-      el.style.marginRight = '25px';
-
-      document.getElementById('remoteVideos').appendChild(el)
-
-      event.track.onmute = function(event) {
-        el.play()
-      }
-
-      event.streams[0].onremovetrack = ({track}) => {
-        if (el.parentNode) {
-          el.parentNode.removeChild(el)
-        }
-      }
-    }
-
-    let ws = new WebSocket(process.env.WEBSOCKET_ADDRESS)
-
-    // Отправка ICE-кандидатов
-    pc.onicecandidate = e => {
-      if (!e.candidate) {
-        return
-      }
-
-      ws.send(JSON.stringify({event: 'candidate', data: JSON.stringify(e.candidate)}))
-    }
-
-    ws.onclose = function(evt) {
-      window.alert("Websocket has closed")
-    }
-
-    ws.onmessage = function(evt) {
-      let msg = JSON.parse(evt.data)
-      if (!msg) {
-        return console.log('failed to parse msg')
-      }
-
-      switch (msg.event) {
-        case 'offer':
-          let offer = JSON.parse(msg.data)
-          if (!offer) {
-            return console.log('failed to parse answer')
-          }
-          pc.setRemoteDescription(offer)
-          pc.createAnswer().then(answer => {
-            pc.setLocalDescription(answer)
-            ws.send(JSON.stringify({event: 'answer', data: JSON.stringify(answer)}))
-          })
-          return
-
-        case 'candidate':
-          let candidate = JSON.parse(msg.data)
-          if (!candidate) {
-            return console.log('failed to parse candidate')
-          }
-
-          pc.addIceCandidate(candidate)
-      }
-    }
-
-    ws.onerror = function(evt) {
-      console.log("ERROR: " + evt.data)
-    }
-
-    // Добавляем обработчик клика для кнопки "Publish"
-    document.getElementById('publishButton').addEventListener('click', function() {
-      let message = document.getElementById('inputMessage').value;
-      if (message) {
-        ws.send(JSON.stringify({event: 'publish', data: JSON.stringify(message)}));
-        console.log("Message sent:", message);
-      } else {
-        console.log("No message to send");
-      }
-    });
-
-  </script>
 </html>

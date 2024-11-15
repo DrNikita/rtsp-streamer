@@ -1,3 +1,5 @@
+# NEXT: athorization/authentication service integration
+
 # Description
 This service allows to store your video and stream them as RTSP stream. Then the server display the stream on "localhost:8080/" using WebRTC. You can create multiple streams.
 

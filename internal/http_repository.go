@@ -39,6 +39,7 @@ type WebrtcRepository struct {
 	upgrader        websocket.Upgrader
 	listLock        sync.RWMutex
 	indexTemplate   *template.Template
+	scriptJS        *template.Template
 	peerConnections []peerConnectionState
 	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
 	streamerService *StreamerService
@@ -59,11 +60,19 @@ func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoSe
 
 	indexTemplate := template.Must(template.New("").Parse(string(indexHTML)))
 
+	scriptTemplate, err := os.ReadFile("./static/script.js")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	scriptJS := template.Must(template.New("").Parse(string(scriptTemplate)))
+
 	return &WebrtcRepository{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 		indexTemplate:   indexTemplate,
+		scriptJS:        scriptJS,
 		listLock:        sync.RWMutex{},
 		peerConnections: make([]peerConnectionState, 0),
 		trackLocals:     map[string]*webrtc.TrackLocalStaticRTP{},
@@ -81,20 +90,23 @@ func (wr *WebrtcRepository) InitConnection(r chi.Router) {
 	r.Post("/upload", wr.upload)
 	r.Get("/video-list", wr.videoList)
 
-	r.HandleFunc("/websocket", wr.websocketHandler)
-
-	// index.html handler
+	r.Handle("/static/script.js", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := wr.scriptJS.Execute(w, "ws://"+r.Host+"/websocket"); err != nil {
+			log.Fatal(err)
+		}
+	}))
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if err := wr.indexTemplate.Execute(w, "ws://"+r.Host+"/websocket"); err != nil {
+		if err := wr.indexTemplate.Execute(w, ""); err != nil {
 			log.Fatal(err)
 		}
 	})
-
 	r.Handle("/static/styles.css", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+
+	r.HandleFunc("/websocket", wr.websocketHandler)
 
 	// request a keyframe every 3 seconds
 	go func() {
-		for range time.NewTicker(time.Microsecond * 500).C {
+		for range time.NewTicker(time.Second * 3).C {
 			wr.dispatchKeyFrame()
 		}
 	}()

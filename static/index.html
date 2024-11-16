@@ -5,19 +5,18 @@
     <meta charset="utf-8">
     <link rel="stylesheet" href="/static/styles.css">
     <script src="/static/script.js"></script>
+    <script src="/static/upload.js"></script>
   </head>
   <body onload="init();">
     <div id="sidebar">
       <div class="header">
         <h4>Доступные трансляции</h4>
-        <button id="addVideoButton" title="Добавить трансляцию">+</button>
-      </div>
-     
+        <button id="addStreamButton" onclick="openFileSelector()">+</button>
+        <input type="file" id="videoFileInput" accept="video/*" style="display: none;" onchange="uploadVideoFile()">
+      </div>      
       <ul id="videoList"></ul>
-     
       <input type="file" id="videoFileInput" accept="video/*" style="display: none;">
-    </div>    
-
+    </div>
     <div id="mainContent">
       <div id="remoteVideos"></div>
     </div>

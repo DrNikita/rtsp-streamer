@@ -7,16 +7,13 @@
 }
 
 body {
-  background-color: hwb(157 74% 8% / 0.76);
   color: #333;
   display: flex;
 }
 
-/* Общие стили для боковой панели */
 #sidebar {
   width: 300px;
-  background-color: #4CAF50;
-  color: white;
+  background-color: cadetblue;
   position: fixed;
   top: 0;
   left: 0;
@@ -33,35 +30,52 @@ body {
 #sidebar .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  height: 40px;
+  margin-bottom: 15px;
+  color: #ffffff;
+  border: 1px solid lightgrey;
+  padding: 5px;
+  border-radius: 8px;
+  position: relative;
 }
 
 #sidebar h4 {
-  margin: 0;
-  margin-bottom: 15px;
-  font-size: 17px;
-  color: hsla(0, 0%, 100%, 0.714);
-  letter-spacing: 1px;
-  border: 1px solid hsla(180, 60%, 64%, 0.898);
-  padding: 10px;
-  border-radius: 8px;
-  background-color: #31b975;
+  flex: 1;
+  text-align: left;
+  margin: 5px;
+  font-family: cursive;
+  font-style: normal;
+  font-size: 18px;
+  font-weight: 80;
+  color: aliceblue;
 }
 
-/* Стили для кнопки добавления */
-#addVideoButton {
-  background-color: #31b975;
-  color: white;
-  border: none;
+#addStreamButton {
+  height: 30px;
+  width: 30px;
+  background-color: skyblue;
   font-size: 20px;
-  padding: 5px 10px;
-  border-radius: 50%;
+  color: #ffffff;
+  border: none;
+  border-radius: 5px;
   cursor: pointer;
-  transition: background-color 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-left: 10px;
+  transition: background-color 0.2s ease;
 }
 
-#addVideoButton:hover {
-  background-color: #1f8a56;
+#addStreamButton:hover {
+  background-color: lightblue;
+  color: lightcyan;
+}
+
+#sidebar .header::after {
+  content: "";
+  position: absolute;
+  width: 1px;
+  height: 80%;
+  right: 50px; /* Отступ от кнопки */
+  top: 10%;
 }
 
 /* Стили для списка видео */
@@ -73,24 +87,25 @@ body {
 
 /* Стили для элементов списка */
 #videoList li {
-  background-color: #388E3C;
   padding: 10px;
   margin-bottom: 10px;
   margin-right: 20px;
   display: flex;
   align-items: center;
   border-radius: 8px;
-  height: 40px;
+  height: 35px;
   box-sizing: border-box;
   overflow: hidden;
   justify-content: space-between;
   cursor: pointer;
+  border: 1px solid #39595a; /* Полупрозрачная граница */
+  background-color: #c4fdffc7; /* Светлый фон для контраста */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Небольшая тень */
+  transition: transform 0.2s ease; /* Эффект при наведении */
 }
 
 #videoList li:hover {
-  background-color: #2e7d32;
-  width: 93%;
-  margin-left: 5px;
+  transform: scale(1.02); /* Увеличение при наведении */
 }
 
 /* Стили для текста с обрезанием */
@@ -100,13 +115,23 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   padding-right: 10px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: large;
+  font-weight: 350;
+  font-style: oblique;
+  color: rgba(187, 52, 146, 0.788);
 }
+
+/* #videoList li:hover {
+  width: 0;
+  margin-left: 0;
+} */
 
 /* Стили для разделительной линии */
 .separator {
   width: 1px;
   height: 100%;
-  background-color: rgba(255, 255, 255, 0.3);
+  background-color: hsla(182, 32%, 31%, 0.671);
 }
 
 /* Стили для кнопки удаления */
@@ -120,8 +145,8 @@ body {
 
 /* Стили для крестика удаления */
 .delete-btn {
-  color: white;
-  font-size: 16px;
+  color: #196161a4;
+  font-size: 22px;
   border: none;
   background: none;
   cursor: pointer;
@@ -130,7 +155,7 @@ body {
 
 /* Подсветка только крестика при наведении */
 .delete-area:hover .delete-btn {
-  color: red;
+  color: #ff00009f;
 }
 
 #mainContent {

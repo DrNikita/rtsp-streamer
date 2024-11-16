@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -19,13 +18,12 @@ import (
 	"github.com/bluenviron/gortsplib/v4/pkg/description"
 	"github.com/bluenviron/gortsplib/v4/pkg/format"
 	"github.com/go-chi/chi"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
-
-var i int
 
 type WebrtcManager interface {
 	addTrack(t *webrtc.TrackLocalStaticSample) error
@@ -38,8 +36,7 @@ type WebrtcManager interface {
 type WebrtcRepository struct {
 	upgrader        websocket.Upgrader
 	listLock        sync.RWMutex
-	indexTemplate   *template.Template
-	scriptJS        *template.Template
+	templates       templateRepository
 	peerConnections []peerConnectionState
 	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
 	streamerService *StreamerService
@@ -49,7 +46,13 @@ type WebrtcRepository struct {
 	ctx             *context.Context
 }
 
-func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoService *VideoService, envs *configs.EnvVariables, logger *slog.Logger, ctx *context.Context) *WebrtcRepository {
+type templateRepository struct {
+	indexTemplate    *template.Template
+	scriptJsTemplate *template.Template
+	uploadJsTemplate *template.Template
+}
+
+func newTemplateRepository() templateRepository {
 	fs := http.FileServer(http.Dir("./static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
@@ -58,25 +61,37 @@ func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoSe
 		log.Fatal(err)
 	}
 
-	indexTemplate := template.Must(template.New("").Parse(string(indexHTML)))
-
-	scriptTemplate, err := os.ReadFile("./static/script.js")
+	scriptJS, err := os.ReadFile("./static/script.js")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	scriptJS := template.Must(template.New("").Parse(string(scriptTemplate)))
+	uploadJS, err := os.ReadFile("./static/upload.js")
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	indexTemplate := template.Must(template.New("").Parse(string(indexHTML)))
+	scriptJSTemplate := template.Must(template.New("").Parse(string(scriptJS)))
+	uploadJSTemplate := template.Must(template.New("").Parse(string(uploadJS)))
+
+	return templateRepository{
+		indexTemplate:    indexTemplate,
+		scriptJsTemplate: scriptJSTemplate,
+		uploadJsTemplate: uploadJSTemplate,
+	}
+}
+
+func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoService *VideoService, envs *configs.EnvVariables, logger *slog.Logger, ctx *context.Context) *WebrtcRepository {
+	templateRepository := newTemplateRepository()
 	return &WebrtcRepository{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		indexTemplate:   indexTemplate,
-		scriptJS:        scriptJS,
+		templates:       templateRepository,
 		listLock:        sync.RWMutex{},
 		peerConnections: make([]peerConnectionState, 0),
 		trackLocals:     map[string]*webrtc.TrackLocalStaticRTP{},
-
 		streamerService: streamerService,
 		videoService:    videoService,
 		envs:            envs,
@@ -91,12 +106,17 @@ func (wr *WebrtcRepository) InitConnection(r chi.Router) {
 	r.Get("/video-list", wr.videoList)
 
 	r.Handle("/static/script.js", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := wr.scriptJS.Execute(w, "ws://"+r.Host+"/websocket"); err != nil {
+		if err := wr.templates.scriptJsTemplate.Execute(w, "ws://"+r.Host+"/websocket"); err != nil {
+			log.Fatal(err)
+		}
+	}))
+	r.Handle("/static/upload.js", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := wr.templates.uploadJsTemplate.Execute(w, ""); err != nil {
 			log.Fatal(err)
 		}
 	}))
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if err := wr.indexTemplate.Execute(w, ""); err != nil {
+		if err := wr.templates.indexTemplate.Execute(w, ""); err != nil {
 			log.Fatal(err)
 		}
 	})
@@ -285,7 +305,7 @@ func (wr *WebrtcRepository) signalPeerConnections() {
 		if syncAttempt == 25 {
 			// Release the lock and attempt a sync in 3 seconds. We might be blocking a RemoveTrack or AddTrack
 			go func() {
-				time.Sleep(time.Second * 3)
+				time.Sleep(time.Millisecond * 10)
 				wr.signalPeerConnections()
 			}()
 			return
@@ -445,18 +465,20 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 
 			time.Sleep(1 * time.Second)
 
-			//retrun streamID which will indicate stream;
-			wr.publishNewStream(rtspUrl)
-			// streamID, err := wr.publishNewStream(rtspUrl)
-			// if err != nil {
-			// 	return err
-			// }
-			// return streamID
-			// case "remove":
-			// 	videoName := strings.Replace(message.Data, "\"", "", -1)
-			// 	wr.logger.Debug("video name received", "data", videoName)
+			trackID, err := wr.publishNewStream(rtspUrl)
+			if err != nil {
+				wr.logger.Error("failed to publish video-stream", "err", err.Error())
+				return
+			}
 
-			// 	wr.removeTrack()
+			if err := c.WriteJSON(&websocketMessage{
+				Event: "trackID",
+				Data:  trackID,
+			}); err != nil {
+				wr.logger.Error("failed to send trackID", "err", err.Error())
+			}
+		case "remove":
+			wr.removeTrack(message.Data)
 		}
 	}
 }
@@ -475,8 +497,8 @@ func (t *threadSafeWriter) WriteJSON(v interface{}) error {
 }
 
 func (wr *WebrtcRepository) publishNewStream(rtspUrl string) (string, error) {
-	i++
-	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, "pion-"+strconv.Itoa(i), "pion-"+strconv.Itoa(i))
+	newTrackID := uuid.New()
+	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, newTrackID.String(), newTrackID.String())
 	if err != nil {
 		return "", err
 	}

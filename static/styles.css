@@ -122,11 +122,6 @@ body {
   color: rgba(187, 52, 146, 0.788);
 }
 
-/* #videoList li:hover {
-  width: 0;
-  margin-left: 0;
-} */
-
 /* Стили для разделительной линии */
 .separator {
   width: 1px;
@@ -143,7 +138,7 @@ body {
   cursor: pointer;
 }
 
-/* Стили для крестика удаления */
+/* Стили для кнопки удаления */
 .delete-btn {
   color: #196161a4;
   font-size: 22px;
@@ -151,6 +146,8 @@ body {
   background: none;
   cursor: pointer;
   transition: color 0.3s;
+  margin-left: 10px;
+  outline: none;
 }
 
 /* Подсветка только крестика при наведении */

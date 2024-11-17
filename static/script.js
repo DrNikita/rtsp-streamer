@@ -1,4 +1,3 @@
-// Устанавливаем WebSocket-соединение
 let ws = new WebSocket("{{.}}");
 
 function init() {
@@ -24,15 +23,12 @@ function setupWebRTCConnection() {
     const trackUUID = uuid.v4();
     el.setAttribute("data-track-id", trackUUID);
 
-    // Создаем кнопку для удаления видео
     let removeButton = document.createElement("button");
     removeButton.textContent = "Remove";
     removeButton.onclick = function() {
-      // Вызываем функцию для удаления видео по trackID
       removeVideoByTrackID(trackUUID);
     };
 
-    // Добавляем видео и кнопку в контейнер
     let videoContainer = document.createElement("div");
     videoContainer.appendChild(el);
     videoContainer.appendChild(removeButton);
@@ -89,52 +85,6 @@ function setupWebRTCConnection() {
   };
 }
 
-// Функция для обновления списка доступных видео
-function updateVideoList() {
-  fetch("http://localhost:8080/video-list")
-    .then(response => response.json())
-    .then(videoList => {
-      let videoListContainer = document.getElementById("videoList");
-      videoListContainer.innerHTML = ""; // Очистка списка перед обновлением
-
-      videoList.forEach(video => {
-        let li = document.createElement("li");
-
-        // Название видеопотока с обрезанием текста
-        let videoTitle = document.createElement("span");
-        videoTitle.textContent = video;
-        videoTitle.classList.add("video-title");
-        videoTitle.onclick = () => startVideoStream(video);
-
-        // Разделительная линия
-        let separator = document.createElement("div");
-        separator.classList.add("separator");
-
-        // Зона удаления
-        let deleteArea = document.createElement("div");
-        deleteArea.classList.add("delete-area");
-        deleteArea.onclick = (e) => {
-          e.stopPropagation();
-          deleteVideoStream(video);
-        };
-
-        // Кнопка удаления (крестик)
-        let deleteBtn = document.createElement("button");
-        deleteBtn.innerHTML = "&times;";
-        deleteBtn.classList.add("delete-btn");
-        deleteArea.appendChild(deleteBtn);
-
-        li.appendChild(videoTitle);
-        li.appendChild(separator);
-        li.appendChild(deleteArea);
-        videoListContainer.appendChild(li);
-      });
-    })
-    .catch(error => console.error("Error fetching video list:", error));
-}
-
-
-// Функция для отправки сообщения "publish" при выборе видео
 function startVideoStream(video) {
   console.log("Selected video:", video);
   ws.send(JSON.stringify({ event: 'publish', data: JSON.stringify(video) }));
@@ -148,47 +98,53 @@ function removeVideoByTrackID(trackID) {
   ws.send(JSON.stringify({ event: 'remove', data: trackID }));
 }
 
-// Функция для удаления видеопотока
-function deleteVideoStream(video) {
-  fetch(`http://localhost:8080/delete-video?name=${encodeURIComponent(video)}`, {
+function updateVideoList() {
+  fetch("http://localhost:8080/video-list")
+    .then(response => response.json())
+    .then(videoList => {
+      let videoListContainer = document.getElementById("videoList");
+      videoListContainer.innerHTML = "";
+
+      videoList.forEach(videoName => {
+        let li = document.createElement("li");
+
+        let videoTitle = document.createElement("span");
+        videoTitle.textContent = videoName;
+        videoTitle.classList.add("video-title");
+
+        // Добавляем обработчик нажатия для вызова startVideoStream
+        li.onclick = () => startVideoStream(videoName);
+
+        let deleteArea = document.createElement("div");
+        deleteArea.classList.add("delete-area");
+
+        let deleteBtn = document.createElement("button");
+        deleteBtn.innerHTML = "&times;";
+        deleteBtn.classList.add("delete-btn");
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation(); // Останавливаем всплытие события, чтобы не вызвать startVideoStream
+          removeVideoByName(videoName);
+        };
+
+        deleteArea.appendChild(deleteBtn);
+        li.appendChild(videoTitle);
+        li.appendChild(deleteArea);
+        videoListContainer.appendChild(li);
+      });
+    })
+    .catch(error => console.error("Error fetching video list:", error));
+}
+
+function removeVideoByName(videoName) {
+  fetch(`http://localhost:8080/delete?video=${encodeURIComponent(videoName)}`, {
     method: "DELETE"
   })
     .then(response => {
       if (response.ok) {
-        console.log("Deleted video:", video);
-        document.getElementById("videoList").innerHTML = "";
-        fetch("http://localhost:8080/video-list")
-          .then(response => response.json())
-          .then(newVideoList => {
-            newVideoList.forEach(newVideo => {
-              let li = document.createElement("li");
-
-              let videoTitle = document.createElement("span");
-              videoTitle.textContent = newVideo;
-              videoTitle.classList.add("video-title");
-              videoTitle.onclick = () => startVideoStream(newVideo);
-
-              let separator = document.createElement("div");
-              separator.classList.add("separator");
-
-              let deleteArea = document.createElement("div");
-              deleteArea.classList.add("delete-area");
-              deleteArea.onclick = (e) => {
-                e.stopPropagation();
-                deleteVideoStream(newVideo);
-              };
-
-              let deleteBtn = document.createElement("button");
-              deleteBtn.innerHTML = "&times;";
-              deleteBtn.classList.add("delete-btn");
-              deleteArea.appendChild(deleteBtn);
-
-              li.appendChild(videoTitle);
-              li.appendChild(separator);
-              li.appendChild(deleteArea);
-              document.getElementById("videoList").appendChild(li);
-            });
-          });
+        console.log("Deleted video:", videoName);
+        updateVideoList();
+      } else {
+        console.error("Failed to delete video:", videoName);
       }
     })
     .catch(error => console.error("Error deleting video:", error));

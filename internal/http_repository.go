@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
@@ -24,14 +25,6 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
-
-type WebrtcManager interface {
-	addTrack(t *webrtc.TrackLocalStaticSample) error
-	removeTrack(t *webrtc.TrackLocalStaticSample)
-	signalPeerConnections()
-	dispatchKeyFrame()
-	websocketHandler(w http.ResponseWriter, r *http.Request)
-}
 
 type WebrtcRepository struct {
 	upgrader        websocket.Upgrader
@@ -101,8 +94,9 @@ func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoSe
 	}
 }
 
-func (wr *WebrtcRepository) InitConnection(r chi.Router) {
+func (wr *WebrtcRepository) SetupRouter(r chi.Router) {
 	r.Post("/upload", wr.upload)
+	r.Delete("/delete", wr.deleteVideo)
 	r.Get("/video-list", wr.videoList)
 
 	r.Handle("/static/script.js", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +118,6 @@ func (wr *WebrtcRepository) InitConnection(r chi.Router) {
 
 	r.HandleFunc("/websocket", wr.websocketHandler)
 
-	// request a keyframe every 3 seconds
 	go func() {
 		for range time.NewTicker(time.Second * 3).C {
 			wr.dispatchKeyFrame()
@@ -179,6 +172,19 @@ func (wr *WebrtcRepository) upload(w http.ResponseWriter, r *http.Request) {
 		Status:       http.StatusOK,
 		IsConverting: false,
 		Result:       "vide uploaded successfully",
+	})
+}
+
+func (wr *WebrtcRepository) deleteVideo(w http.ResponseWriter, r *http.Request) {
+	videoName := r.URL.Query().Get("video")
+	err := wr.videoService.DeleteVideo(videoName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}
+
+	json.NewEncoder(w).Encode(Response{
+		Status: http.StatusOK,
+		Result: fmt.Sprintf("video deleted successfully: %s", videoName),
 	})
 }
 

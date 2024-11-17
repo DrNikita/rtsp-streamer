@@ -14,9 +14,10 @@
         <h4>Доступные трансляции</h4>
         <button id="addStreamButton" onclick="openFileSelector()">+</button>
         <input type="file" id="videoFileInput" accept="video/*" style="display: none;" onchange="uploadVideoFile()">
-      </div>      
-      <ul id="videoList"></ul>
-      <input type="file" id="videoFileInput" accept="video/*" style="display: none;">
+      </div>
+      <ul id="videoList">
+        <!-- Список видео будет обновляться динамически -->
+      </ul>
     </div>
     <div id="mainContent">
       <div id="remoteVideos"></div>

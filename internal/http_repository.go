@@ -191,16 +191,6 @@ func (wr *WebrtcRepository) videoList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(videos)
 }
 
-type websocketMessage struct {
-	Event string `json:"event"`
-	Data  string `json:"data"`
-}
-
-type peerConnectionState struct {
-	peerConnection *webrtc.PeerConnection
-	websocket      *threadSafeWriter
-}
-
 // Add to list of tracks and fire renegotation for all PeerConnections
 func (wr *WebrtcRepository) addTrack(t *webrtc.TrackLocalStaticRTP) error {
 	wr.listLock.Lock()

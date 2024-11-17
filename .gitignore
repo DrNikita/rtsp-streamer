@@ -1,6 +1,4 @@
 .vscode
-.idea
 .env
-data/
-data.rar
-anime/
+node_modules
+*.json

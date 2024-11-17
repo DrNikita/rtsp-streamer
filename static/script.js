@@ -10,7 +10,6 @@ function init() {
 
 function setupWebRTCConnection() {
   let pc = new RTCPeerConnection();
-  let trackID = null;
 
   pc.ontrack = function (event) {
     if (event.track.kind === 'audio') {
@@ -22,12 +21,15 @@ function setupWebRTCConnection() {
     el.autoplay = true;
     el.controls = true;
 
+    const trackUUID = uuid.v4();
+    el.setAttribute("data-track-id", trackUUID);
+
     // Создаем кнопку для удаления видео
     let removeButton = document.createElement("button");
     removeButton.textContent = "Remove";
     removeButton.onclick = function() {
       // Вызываем функцию для удаления видео по trackID
-      removeVideoByTrackID(trackID);
+      removeVideoByTrackID(trackUUID);
     };
 
     // Добавляем видео и кнопку в контейнер
@@ -35,10 +37,6 @@ function setupWebRTCConnection() {
     videoContainer.appendChild(el);
     videoContainer.appendChild(removeButton);
     document.getElementById('remoteVideos').appendChild(videoContainer);
-
-    if (trackID) {
-      el.setAttribute("data-track-id", trackID)
-    }
 
     document.getElementById('remoteVideos').appendChild(el);
 
@@ -82,19 +80,6 @@ function setupWebRTCConnection() {
           return console.log('failed to parse candidate');
         }
         pc.addIceCandidate(candidate);
-        return;
-      
-      case 'trackID':
-        trackID = msg.data;
-        console.log("Received trackID:", trackID);
-
-        let remoteVideosContainer = document.getElementById('remoteVideos');
-        let lastVideoElement = remoteVideosContainer.lastElementChild;
-        if (lastVideoElement && lastVideoElement.tagName === 'VIDEO') {
-          lastVideoElement.setAttribute("data-track-id", trackID);
-        }
-
-        document.getElementById('trackIDDisplay').textContent = "Track ID: " + trackID;
         return;
     }
   };

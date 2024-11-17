@@ -1,3 +1,6 @@
+1) install npm
+2) npm install uuid
+
 # NEXT: athorization/authentication service integration
 
 # Description

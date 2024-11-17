@@ -9,9 +9,9 @@ function init() {
 
 function setupWebRTCConnection() {
   let pc = new RTCPeerConnection();
-  let trackID = null;
 
   pc.ontrack = function (event) {
+    let trackID = event.track.id
     if (event.track.kind === 'audio') {
       return;
     }
@@ -26,10 +26,8 @@ function setupWebRTCConnection() {
     let removeButton = document.createElement("button");
     removeButton.textContent = "Remove";
     removeButton.onclick = function() {
-      removeVideoByTrackID(el.getAttribute("data-track-id"));
+      removeVideoByTrackID(trackID);
     };
-
-    trackID = null;
 
     let videoContainer = document.createElement("div");
     videoContainer.appendChild(el);
@@ -79,10 +77,6 @@ function setupWebRTCConnection() {
         }
         pc.addIceCandidate(candidate);
         return;
-      
-        case 'trackID':
-        trackID = msg.uuid
-        return;
     }
   };
 
@@ -101,7 +95,7 @@ function removeVideoByTrackID(trackID) {
   if (videoElement && videoElement.parentNode) {
     videoElement.parentNode.removeChild(videoElement);
   }
-  ws.send(JSON.stringify({ event: 'remove', uuid: trackID }));
+  ws.send(JSON.stringify({ event: 'remove', data: trackID }));
 }
 
 function updateVideoList() {

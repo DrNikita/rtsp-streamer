@@ -450,14 +450,6 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 				return
 			}
 		case "publish":
-			trackUUID := uuid.New().String()
-			if err := c.WriteJSON(&websocketMessage{
-				Event: "trackID",
-				UUID:  trackUUID,
-			}); err != nil {
-				wr.logger.Error("failed to send trackID", "err", err.Error())
-			}
-
 			videoName := strings.Replace(message.Data, "\"", "", -1)
 			wr.logger.Debug("video name received", "data", videoName)
 
@@ -469,13 +461,13 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 
 			time.Sleep(1 * time.Second)
 
-			err = wr.publishNewStream(rtspUrl, trackUUID)
+			err = wr.publishNewStream(rtspUrl)
 			if err != nil {
 				wr.logger.Error("failed to publish video-stream", "err", err.Error())
 				return
 			}
 		case "remove":
-			wr.removeTrack(message.UUID)
+			wr.removeTrack(message.Data)
 		}
 	}
 }
@@ -493,8 +485,9 @@ func (t *threadSafeWriter) WriteJSON(v interface{}) error {
 	return t.Conn.WriteJSON(v)
 }
 
-func (wr *WebrtcRepository) publishNewStream(rtspUrl string, trackID string) error {
-	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, trackID, trackID)
+func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
+	trackUUID := uuid.New().String()
+	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, trackUUID, trackUUID)
 	if err != nil {
 		return err
 	}

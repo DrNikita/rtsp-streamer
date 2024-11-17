@@ -12,7 +12,6 @@ type Response struct {
 type websocketMessage struct {
 	Event string `json:"event"`
 	Data  string `json:"data"`
-	UUID  string `json:"uuid"`
 }
 
 type peerConnectionState struct {

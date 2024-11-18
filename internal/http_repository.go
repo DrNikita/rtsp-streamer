@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 	"video-handler/configs"
 
@@ -29,7 +29,6 @@ import (
 type WebrtcRepository struct {
 	upgrader        websocket.Upgrader
 	listLock        sync.RWMutex
-	templates       templateRepository
 	peerConnections []peerConnectionState
 	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
 	streamerService *StreamerService
@@ -39,49 +38,11 @@ type WebrtcRepository struct {
 	ctx             *context.Context
 }
 
-type templateRepository struct {
-	indexTemplate    *template.Template
-	scriptJsTemplate *template.Template
-	uploadJsTemplate *template.Template
-}
-
-func newTemplateRepository() templateRepository {
-	fs := http.FileServer(http.Dir("./static"))
-	http.Handle("/static/", http.StripPrefix("/static/", fs))
-
-	indexHTML, err := os.ReadFile("./static/index.html")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	scriptJS, err := os.ReadFile("./static/script.js")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	uploadJS, err := os.ReadFile("./static/upload.js")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	indexTemplate := template.Must(template.New("").Parse(string(indexHTML)))
-	scriptJSTemplate := template.Must(template.New("").Parse(string(scriptJS)))
-	uploadJSTemplate := template.Must(template.New("").Parse(string(uploadJS)))
-
-	return templateRepository{
-		indexTemplate:    indexTemplate,
-		scriptJsTemplate: scriptJSTemplate,
-		uploadJsTemplate: uploadJSTemplate,
-	}
-}
-
 func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoService *VideoService, envs *configs.EnvVariables, logger *slog.Logger, ctx *context.Context) *WebrtcRepository {
-	templateRepository := newTemplateRepository()
 	return &WebrtcRepository{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		templates:       templateRepository,
 		listLock:        sync.RWMutex{},
 		peerConnections: make([]peerConnectionState, 0),
 		trackLocals:     map[string]*webrtc.TrackLocalStaticRTP{},
@@ -98,25 +59,11 @@ func (wr *WebrtcRepository) SetupRouter(r chi.Router) {
 	r.Post("/upload", wr.upload)
 	r.Delete("/delete", wr.deleteVideo)
 	r.Get("/video-list", wr.videoList)
-
-	r.Handle("/static/script.js", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := wr.templates.scriptJsTemplate.Execute(w, "ws://"+r.Host+"/websocket"); err != nil {
-			log.Fatal(err)
-		}
-	}))
-	r.Handle("/static/upload.js", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := wr.templates.uploadJsTemplate.Execute(w, ""); err != nil {
-			log.Fatal(err)
-		}
-	}))
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if err := wr.templates.indexTemplate.Execute(w, ""); err != nil {
-			log.Fatal(err)
-		}
-	})
-	r.Handle("/static/styles.css", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
-
 	r.HandleFunc("/websocket", wr.websocketHandler)
+
+	workDir, _ := os.Getwd()
+	filesDir := http.Dir(filepath.Join(workDir, "/static"))
+	FileServer(r, "/static", filesDir)
 
 	go func() {
 		for range time.NewTicker(time.Second * 3).C {

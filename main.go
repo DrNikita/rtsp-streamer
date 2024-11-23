@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi"
 
 	"video-handler/configs"
+	"video-handler/external/auth"
 	"video-handler/internal"
 
 	_ "github.com/joho/godotenv/autoload"
@@ -17,6 +18,7 @@ import (
 func main() {
 	envs := configs.MustConfig()
 	minioConfig := configs.MustConfigMinio()
+	externalAuthService := configs.MustConfigAuthService()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 		AddSource: true,
@@ -38,9 +40,11 @@ func main() {
 
 	r := chi.NewRouter()
 
+	authRepository := auth.NewAuthRepository(externalAuthService, logger)
+
 	streamerService := internal.NewStreamerService(videoService, envs, logger, ctx, cancel)
 
-	webrtcRespository := internal.NewWebrtcRepository(r, streamerService, videoService, envs, logger, &ctx)
+	webrtcRespository := internal.NewWebrtcRepository(r, streamerService, videoService, authRepository, envs, logger, &ctx)
 	webrtcRespository.SetupRouter(r)
 
 	logger.Info("server started and running on port :" + envs.ServerPort)

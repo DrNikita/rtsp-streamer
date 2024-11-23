@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 	"video-handler/configs"
+	"video-handler/external/auth"
 
 	"github.com/bluenviron/gortsplib/v4"
 	"github.com/bluenviron/gortsplib/v4/pkg/base"
@@ -33,12 +34,24 @@ type WebrtcRepository struct {
 	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
 	streamerService *StreamerService
 	videoService    *VideoService
+	authService     auth.Authentificatior
 	envs            *configs.EnvVariables
 	logger          *slog.Logger
 	ctx             *context.Context
 }
 
-func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoService *VideoService, envs *configs.EnvVariables, logger *slog.Logger, ctx *context.Context) *WebrtcRepository {
+func NewWebrtcRepository(
+
+	r chi.Router,
+	streamerService *StreamerService,
+	videoService *VideoService,
+	authService auth.Authentificatior,
+	envs *configs.EnvVariables,
+	logger *slog.Logger,
+	ctx *context.Context,
+
+) *WebrtcRepository {
+
 	return &WebrtcRepository{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -46,6 +59,7 @@ func NewWebrtcRepository(r chi.Router, streamerService *StreamerService, videoSe
 		listLock:        sync.RWMutex{},
 		peerConnections: make([]peerConnectionState, 0),
 		trackLocals:     map[string]*webrtc.TrackLocalStaticRTP{},
+		authService:     authService,
 		streamerService: streamerService,
 		videoService:    videoService,
 		envs:            envs,

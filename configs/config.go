@@ -29,6 +29,11 @@ type EnvVariables struct {
 	WebSocketAddress              string `envconfig:"WEBSOCKET_ADDRESS"`
 }
 
+type ExternalAuthService struct {
+	RegisterEndpoint string `envconfig:"endpoint_register"`
+	LoginEndpoint    string `envconfig:"endpoint_login"`
+}
+
 func MustConfig() *EnvVariables {
 	var ev EnvVariables
 	err := envconfig.Process("", &ev)
@@ -45,4 +50,13 @@ func MustConfigMinio() *MinioEnvs {
 		panic(err)
 	}
 	return &me
+}
+
+func MustConfigAuthService() *ExternalAuthService {
+	var as ExternalAuthService
+	err := envconfig.Process("auth", &as)
+	if err != nil {
+		panic(err)
+	}
+	return &as
 }

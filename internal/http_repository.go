@@ -69,21 +69,24 @@ func NewWebrtcRepository(
 	}
 }
 
-func (wr *WebrtcRepository) SetupRouter(r chi.Router) {
+func (wr *WebrtcRepository) SetupHandler(r chi.Router) (http.Handler, error) {
 	r.Post("/upload", wr.upload)
 	r.Delete("/delete", wr.deleteVideo)
 	r.Get("/video-list", wr.videoList)
 	r.HandleFunc("/websocket", wr.websocketHandler)
 
-	workDir, _ := os.Getwd()
-	filesDir := http.Dir(filepath.Join(workDir, "/static"))
-	FileServer(r, "/static", filesDir)
+	if workDir, err := os.Getwd(); err == nil {
+		filesDir := http.Dir(filepath.Join(workDir, "/static"))
+		FileServer(r, "/static", filesDir)
+	}
 
 	go func() {
 		for range time.NewTicker(time.Second * 3).C {
 			wr.dispatchKeyFrame()
 		}
 	}()
+
+	return AuthMiddleware(r), nil
 }
 
 func (wr *WebrtcRepository) upload(w http.ResponseWriter, r *http.Request) {

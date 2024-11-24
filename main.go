@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -45,11 +47,10 @@ func main() {
 	streamerService := internal.NewStreamerService(videoService, envs, logger, ctx, cancel)
 
 	webrtcRespository := internal.NewWebrtcRepository(r, streamerService, videoService, authRepository, envs, logger, &ctx)
-	webrtcRespository.SetupRouter(r)
-
-	logger.Info("server started and running on port :" + envs.ServerPort)
-	err = http.ListenAndServe(envs.ServerHost+":"+envs.ServerPort, r)
-	if err != nil {
-		panic(err)
+	if handler, err := webrtcRespository.SetupHandler(r); err == nil {
+		logger.Info("server started and running on port :" + envs.ServerPort)
+		log.Fatal(http.ListenAndServe(envs.ServerHost+":"+envs.ServerPort, handler))
 	}
+
+	log.Fatal(errors.New("failed to start server on port" + envs.ServerPort))
 }

@@ -1,19 +1,12 @@
 package internal
 
 import (
-	"fmt"
 	"net/http"
 )
 
-var i int
-
-func Init() {
-	i = 0
-}
-
-func authMiddleware(next http.Handler) http.Handler {
+func verifyCredentials(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(i)
-		i++
+		//TODO: request to auth service to verify header credentials
+		next.ServeHTTP(w, r)
 	})
 }

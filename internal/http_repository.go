@@ -86,7 +86,7 @@ func (wr *WebrtcRepository) SetupHandler(r chi.Router) (http.Handler, error) {
 		}
 	}()
 
-	return authMiddleware(r), nil
+	return verifyCredentials(r), nil
 }
 
 func (wr *WebrtcRepository) upload(w http.ResponseWriter, r *http.Request) {

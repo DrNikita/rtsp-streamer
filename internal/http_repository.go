@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -262,7 +263,7 @@ func (wr *WebrtcRepository) signalPeerConnections() {
 	}
 
 	for syncAttempt := 0; ; syncAttempt++ {
-		if syncAttempt == 25 {
+		if syncAttempt == 2 {
 			// Release the lock and attempt a sync in 3 seconds. We might be blocking a RemoveTrack or AddTrack
 			go func() {
 				time.Sleep(time.Millisecond * 10)
@@ -283,17 +284,21 @@ func (wr *WebrtcRepository) dispatchKeyFrame() {
 	defer wr.listLock.Unlock()
 
 	for i := range wr.peerConnections {
-		for _, receiver := range wr.peerConnections[i].peerConnection.GetReceivers() {
-			if receiver.Track() == nil {
-				continue
-			}
+		receivers := wr.peerConnections[i].peerConnection.GetReceivers()
 
-			_ = wr.peerConnections[i].peerConnection.WriteRTCP([]rtcp.Packet{
-				&rtcp.PictureLossIndication{
-					MediaSSRC: uint32(receiver.Track().SSRC()),
-				},
-			})
-		}
+		go func(receivers []*webrtc.RTPReceiver, i int) {
+			for _, receiver := range receivers {
+				if receiver.Track() == nil {
+					continue
+				}
+
+				_ = wr.peerConnections[i].peerConnection.WriteRTCP([]rtcp.Packet{
+					&rtcp.PictureLossIndication{
+						MediaSSRC: uint32(receiver.Track().SSRC()),
+					},
+				})
+			}
+		}(receivers, i)
 	}
 }
 
@@ -461,63 +466,74 @@ func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
 		return err
 	}
 
-	go wr.rtspConsumer(rtpTrack, rtspUrl)
+	go func() {
+		err := wr.rtspConsumer(rtpTrack, rtspUrl)
+		if err != nil {
+			wr.logger.Error(err.Error())
+			return
+		}
+	}()
 
 	return nil
 }
 
-func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) {
-	c := gortsplib.Client{}
+func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
+	c := gortsplib.Client{}
 	// parse URL
 	u, err := base.ParseURL(rtspUrl)
 	if err != nil {
-		wr.logger.Error("failed to parse url", "RTSP_URL", rtspUrl, "err", err.Error())
-		panic(err)
+		return fmt.Errorf("failed to parse RTSP URL: %w", err)
 	}
 
 	// connect to the server
 	err = c.Start(u.Scheme, u.Host)
 	if err != nil {
-		wr.logger.Error(err.Error())
-		panic(err)
+		return fmt.Errorf("failed to connect to RTSP server at %s: %w", u.Host, err)
 	}
 	defer c.Close()
 
 	// find available medias
 	desc, _, err := c.Describe(u)
 	if err != nil {
-		wr.logger.Error("failed to describe url", "RTSP_URL", rtspUrl, "err", err.Error())
-		panic(err)
+		return fmt.Errorf("failed to describe RTSP stream: %w", err)
 	}
 
 	// setup all medias
 	err = c.SetupAll(desc.BaseURL, desc.Medias)
 	if err != nil {
-		wr.logger.Error(err.Error())
-		panic(err)
+		return fmt.Errorf("failed to setup RTSP media streams: %w", err)
 	}
 
-	// called when a RTP packet arrives
+	// called when an RTP packet arrives
 	c.OnPacketRTPAny(func(medi *description.Media, forma format.Format, pkt *rtp.Packet) {
-		track.WriteRTP(pkt)
-	})
-
-	// called when a RTCP packet arrives
-	c.OnPacketRTCPAny(func(medi *description.Media, pkt rtcp.Packet) {
-		log.Printf("RTCP packet from media %v, type %T\n", medi, pkt)
+		if err := track.WriteRTP(pkt); err != nil {
+			log.Printf("failed to write RTP packet: %v", err)
+		}
 	})
 
 	// start playing
 	_, err = c.Play(nil)
 	if err != nil {
-		wr.logger.Error(err.Error())
-		panic(err)
+		return fmt.Errorf("failed to start playing RTSP stream: %w", err)
 	}
 
-	// wait until a fatal error
-	err = c.Wait()
-	if err != nil {
-		wr.logger.Error(err.Error())
+	log.Println("RTSP stream started successfully")
+
+	// Monitor context cancellation
+	go func() {
+		<-ctx.Done()
+		log.Println("RTSP consumer shutting down")
+		c.Close()
+	}()
+
+	// Wait until a fatal error or context cancellation
+	if err = c.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		return fmt.Errorf("RTSP stream encountered an error: %w", err)
 	}
+
+	log.Println("RTSP consumer exited cleanly")
+	return nil
 }

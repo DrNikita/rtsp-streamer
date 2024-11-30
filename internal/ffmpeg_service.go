@@ -59,17 +59,27 @@ func (service *VideoService) processVideoContainer(video multipart.File, videoIn
 }
 
 func (service *VideoService) StreamVideoAsRTSP(video *minio.Object, protocol, streamAddress string) ([]byte, error) {
-	service.Logger.Debug("", video)
-	rtspVidoStreamCommand := cmdCommand.CmdCommand{
-		App:    "ffmpeg",
-		Args:   []string{"-re", "-stream_loop", "-1", "-i", "pipe:0", "-c", "copy", "-bsf:v", "h264_mp4toannexb", "-f", protocol, streamAddress},
+	rtspVideoStreamCommand := cmdCommand.CmdCommand{
+		App: "ffmpeg",
+		Args: []string{
+			"-re",
+			"-i", "pipe:0",
+			"-c:v", "libx264",
+			"-c", "copy",
+			"-b:v", "1M",
+			"-bsf:v", "h264_mp4toannexb",
+			"-preset", "medium",
+			"-tune", "zerolatency",
+			"-f", protocol,
+			streamAddress,
+		},
 		Pipe:   video,
 		Logger: *service.Logger,
 	}
 
-	stdout, err := rtspVidoStreamCommand.ExecuteCommand()
+	stdout, err := rtspVideoStreamCommand.ExecuteCommand()
 	if err != nil {
-		rtspVidoStreamCommand.Logger.Error("error starting video as rtsp stream", "error msg", err.Error())
+		rtspVideoStreamCommand.Logger.Error("error starting video as rtsp stream", "error msg", err.Error())
 		return nil, err
 	}
 

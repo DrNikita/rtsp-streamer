@@ -3,6 +3,7 @@ module video-handler
 go 1.21.5
 
 require (
+	github.com/766b/chi-prometheus v0.0.0-20211217152057-87afa9aa2ca8
 	github.com/go-chi/chi v1.5.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
@@ -10,11 +11,15 @@ require (
 	github.com/minio/minio-go/v7 v7.0.73
 	github.com/pion/rtcp v1.2.14
 	github.com/pion/webrtc/v4 v4.0.0-beta.29
+	github.com/prometheus/client_golang v1.20.5
 )
 
 require (
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bluenviron/mediacommon v1.11.1-0.20240525122142-20163863aa75 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pion/datachannel v1.5.9 // indirect
 	github.com/pion/dtls/v3 v3.0.1 // indirect
 	github.com/pion/ice/v4 v4.0.1 // indirect
@@ -28,7 +33,11 @@ require (
 	github.com/pion/stun/v3 v3.0.0 // indirect
 	github.com/pion/transport/v3 v3.0.7 // indirect
 	github.com/pion/turn/v4 v4.0.0 // indirect
+	github.com/prometheus/client_model v0.6.1 // indirect
+	github.com/prometheus/common v0.55.0 // indirect
+	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/wlynxg/anet v0.0.3 // indirect
+	google.golang.org/protobuf v1.34.2 // indirect
 )
 
 require (

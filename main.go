@@ -10,9 +10,10 @@ import (
 
 	"github.com/go-chi/chi"
 
-	"video-handler/configs"
-	"video-handler/external/auth"
-	"video-handler/internal"
+	"rtsp-streamer/configs"
+	"rtsp-streamer/external/auth"
+	internalHttp "rtsp-streamer/internal/http"
+	"rtsp-streamer/internal/service"
 
 	_ "github.com/joho/godotenv/autoload"
 )
@@ -30,7 +31,7 @@ func main() {
 	ctxTimeout, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	videoService, err := internal.NewVideoService(ctxTimeout, envs, minioConfig, logger)
+	videoService, err := service.NewVideoService(ctxTimeout, envs, minioConfig, logger)
 	if err != nil {
 		panic(err)
 	}
@@ -44,9 +45,9 @@ func main() {
 
 	authRepository := auth.NewAuthRepository(externalAuthService, logger)
 
-	streamerService := internal.NewStreamerService(videoService, envs, logger, ctx, cancel)
+	streamerService := service.NewStreamerService(videoService, envs, logger, ctx, cancel)
 
-	webrtcRespository := internal.NewWebrtcRepository(r, streamerService, videoService, authRepository, envs, logger, &ctx)
+	webrtcRespository := internalHttp.NewWebrtcRepository(r, streamerService, videoService, authRepository, envs, logger, &ctx)
 	if handler, err := webrtcRespository.SetupHandler(r); err == nil {
 		logger.Info("server started and running on port :" + envs.ServerPort)
 		log.Fatal(http.ListenAndServe(envs.ServerHost+":"+envs.ServerPort, handler))

@@ -2,7 +2,7 @@ package auth
 
 import (
 	"log/slog"
-	"video-handler/configs"
+	"rtsp-streamer/configs"
 )
 
 type Authentificatior interface {

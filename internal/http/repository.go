@@ -1,4 +1,4 @@
-package internal
+package http
 
 import (
 	"context"
@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"rtsp-streamer/configs"
+	"rtsp-streamer/external/auth"
 	"strings"
 	"sync"
 	"time"
-	"video-handler/configs"
-	"video-handler/external/auth"
+
+	"rtsp-streamer/internal/middleware"
+	"rtsp-streamer/internal/service"
 
 	chiprometheus "github.com/766b/chi-prometheus"
 	"github.com/bluenviron/gortsplib/v4"
@@ -34,8 +37,8 @@ type WebrtcRepository struct {
 	listLock        sync.RWMutex
 	peerConnections []peerConnectionState
 	trackLocals     map[string]*webrtc.TrackLocalStaticRTP
-	streamerService *StreamerService
-	videoService    *VideoService
+	streamerService *service.StreamerService
+	videoService    *service.VideoService
 	authService     auth.Authentificatior
 	envs            *configs.EnvVariables
 	logger          *slog.Logger
@@ -43,10 +46,9 @@ type WebrtcRepository struct {
 }
 
 func NewWebrtcRepository(
-
 	r chi.Router,
-	streamerService *StreamerService,
-	videoService *VideoService,
+	streamerService *service.StreamerService,
+	videoService *service.VideoService,
 	authService auth.Authentificatior,
 	envs *configs.EnvVariables,
 	logger *slog.Logger,
@@ -92,7 +94,7 @@ func (wr *WebrtcRepository) SetupHandler(r chi.Router) (http.Handler, error) {
 		}
 	}()
 
-	return verifyCredentials(r), nil
+	return middleware.VerifyCredentials(r), nil
 }
 
 func (wr *WebrtcRepository) upload(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +111,7 @@ func (wr *WebrtcRepository) upload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer buffer.Close()
 
-	conversionNeed, err := wr.videoService.processVideoContainer(buffer, handler)
+	conversionNeed, err := wr.videoService.ProcessVideoContainer(buffer, handler)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(Response{
@@ -423,7 +425,7 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 			videoName := strings.Replace(message.Data, "\"", "", -1)
 			wr.logger.Debug("video name received", "data", videoName)
 
-			rtspUrl, err := wr.streamerService.createVideoStream(videoName)
+			rtspUrl, err := wr.streamerService.CreateVideoStream(videoName)
 			if err != nil {
 				wr.logger.Error("", "err", err.Error())
 				return

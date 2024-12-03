@@ -1,4 +1,4 @@
-package internal
+package service
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"mime/multipart"
 	"strings"
 
-	cmdCommand "video-handler/pkg"
+	cmdCommand "rtsp-streamer/pkg"
 
 	"github.com/minio/minio-go/v7"
 )
@@ -16,7 +16,7 @@ const (
 	supportedCodecs string = "H265,H264,VP9,VP8"
 )
 
-func (service *VideoService) processVideoContainer(video multipart.File, videoInfo *multipart.FileHeader) (bool, error) {
+func (service *VideoService) ProcessVideoContainer(video multipart.File, videoInfo *multipart.FileHeader) (bool, error) {
 	var conversionNeed bool
 
 	videoCodec, err := service.getVideoCodec(video)

@@ -1,4 +1,4 @@
-package internal
+package service
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"strings"
-	"video-handler/configs"
+	"rtsp-streamer/configs"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -38,7 +38,7 @@ func NewVideoService(ctx context.Context, envs *configs.EnvVariables, minioEnvs 
 	}, nil
 }
 
-func (service *VideoService) streamVideoToServer(sourseVideName, rtspUrl string) error {
+func (service *VideoService) StreamVideoToServer(sourseVideName, rtspUrl string) error {
 	video, err := service.MinioClient.GetObject(service.Context, service.MinioEnvs.Bucket, sourseVideName, minio.GetObjectOptions{})
 	if err != nil {
 		return err

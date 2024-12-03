@@ -1,14 +1,14 @@
-package internal
+package service
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
 	"net"
+	"rtsp-streamer/configs"
+	"rtsp-streamer/internal/rtspserver"
 	"strconv"
 	"sync"
-	"video-handler/configs"
-	"video-handler/internal/rtspserver"
 )
 
 type StreamerService struct {
@@ -29,7 +29,7 @@ func NewStreamerService(service *VideoService, envs *configs.EnvVariables, logge
 	}
 }
 
-func (service *StreamerService) createVideoStream(videoName string) (string, error) {
+func (service *StreamerService) CreateVideoStream(videoName string) (string, error) {
 	freePort, err := findFreePort()
 	if err != nil {
 		return "", err
@@ -53,7 +53,7 @@ func (service *StreamerService) createVideoStream(videoName string) (string, err
 	wg.Add(1)
 	go func() {
 		wg.Done()
-		err = service.VideoService.streamVideoToServer(videoName, rtspUrl)
+		err = service.VideoService.StreamVideoToServer(videoName, rtspUrl)
 		if err != nil {
 			service.CtxCancel()
 		}

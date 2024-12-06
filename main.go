@@ -44,9 +44,9 @@ func main() {
 
 	authRepository := auth.NewAuthRepository(externalAuthService, logger)
 
-	streamerService := internal.NewStreamerService(videoService, envs, logger, ctx, cancel)
+	streamerService := internal.NewStreamerService(videoService, envs, logger, ctxTimeout, cancel)
 
-	webrtcRespository := internal.NewWebrtcRepository(r, streamerService, videoService, authRepository, envs, logger, &ctx)
+	webrtcRespository := internal.NewWebrtcRepository(r, streamerService, videoService, authRepository, envs, logger, ctxTimeout)
 	if handler, err := webrtcRespository.SetupHandler(r); err == nil {
 		logger.Info("server started and running on port :" + envs.ServerPort)
 		log.Fatal(http.ListenAndServe(envs.ServerHost+":"+envs.ServerPort, handler))

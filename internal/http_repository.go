@@ -16,6 +16,7 @@ import (
 	"video-handler/configs"
 	"video-handler/external/auth"
 
+	chiprometheus "github.com/766b/chi-prometheus"
 	"github.com/bluenviron/gortsplib/v4"
 	"github.com/bluenviron/gortsplib/v4/pkg/base"
 	"github.com/bluenviron/gortsplib/v4/pkg/description"
@@ -26,6 +27,7 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type WebrtcRepository struct {
@@ -38,7 +40,7 @@ type WebrtcRepository struct {
 	authService     auth.Authentificatior
 	envs            *configs.EnvVariables
 	logger          *slog.Logger
-	ctx             *context.Context
+	ctx             context.Context
 }
 
 func NewWebrtcRepository(
@@ -49,7 +51,7 @@ func NewWebrtcRepository(
 	authService auth.Authentificatior,
 	envs *configs.EnvVariables,
 	logger *slog.Logger,
-	ctx *context.Context,
+	ctx context.Context,
 
 ) *WebrtcRepository {
 
@@ -71,6 +73,10 @@ func NewWebrtcRepository(
 }
 
 func (wr *WebrtcRepository) SetupHandler(r chi.Router) (http.Handler, error) {
+	m := chiprometheus.NewMiddleware("rtsp-streamer")
+	r.Use(m)
+	r.Handle("/metrics", promhttp.Handler())
+
 	r.Post("/upload", wr.upload)
 	r.Delete("/delete", wr.deleteVideo)
 	r.Get("/video-list", wr.videoList)
@@ -263,7 +269,7 @@ func (wr *WebrtcRepository) signalPeerConnections() {
 	}
 
 	for syncAttempt := 0; ; syncAttempt++ {
-		if syncAttempt == 2 {
+		if syncAttempt == 25 {
 			// Release the lock and attempt a sync in 3 seconds. We might be blocking a RemoveTrack or AddTrack
 			go func() {
 				time.Sleep(time.Millisecond * 10)
@@ -284,21 +290,17 @@ func (wr *WebrtcRepository) dispatchKeyFrame() {
 	defer wr.listLock.Unlock()
 
 	for i := range wr.peerConnections {
-		receivers := wr.peerConnections[i].peerConnection.GetReceivers()
-
-		go func(receivers []*webrtc.RTPReceiver, i int) {
-			for _, receiver := range receivers {
-				if receiver.Track() == nil {
-					continue
-				}
-
-				_ = wr.peerConnections[i].peerConnection.WriteRTCP([]rtcp.Packet{
-					&rtcp.PictureLossIndication{
-						MediaSSRC: uint32(receiver.Track().SSRC()),
-					},
-				})
+		for _, receiver := range wr.peerConnections[i].peerConnection.GetReceivers() {
+			if receiver.Track() == nil {
+				continue
 			}
-		}(receivers, i)
+
+			_ = wr.peerConnections[i].peerConnection.WriteRTCP([]rtcp.Packet{
+				&rtcp.PictureLossIndication{
+					MediaSSRC: uint32(receiver.Track().SSRC()),
+				},
+			})
+		}
 	}
 }
 
@@ -469,7 +471,7 @@ func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
 	time.Sleep(100 * time.Millisecond)
 
 	go func() {
-		err = wr.rtspConsumer(rtpTrack, rtspUrl)
+		err := wr.rtspConsumer(rtpTrack, rtspUrl)
 		if err != nil {
 			wr.logger.Error(err.Error())
 			return
@@ -479,33 +481,35 @@ func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
 }
 
 func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	c := gortsplib.Client{}
+
 	// parse URL
 	u, err := base.ParseURL(rtspUrl)
 	if err != nil {
-		return fmt.Errorf("failed to parse RTSP URL: %w", err)
+		wr.logger.Error("failed to parse url", "RTSP_URL", rtspUrl, "err", err.Error())
+		panic(err)
 	}
 
 	// connect to the server
 	err = c.Start(u.Scheme, u.Host)
 	if err != nil {
-		return fmt.Errorf("failed to connect to RTSP server at %s: %w", u.Host, err)
+		wr.logger.Error(err.Error())
+		panic(err)
 	}
 	defer c.Close()
 
 	// find available medias
 	desc, _, err := c.Describe(u)
 	if err != nil {
-		return fmt.Errorf("failed to describe RTSP stream: %w", err)
+		wr.logger.Error("failed to describe url", "RTSP_URL", rtspUrl, "err", err.Error())
+		panic(err)
 	}
 
 	// setup all medias
 	err = c.SetupAll(desc.BaseURL, desc.Medias)
 	if err != nil {
-		return fmt.Errorf("failed to setup RTSP media streams: %w", err)
+		wr.logger.Error(err.Error())
+		panic(err)
 	}
 
 	packetChan := make(chan *rtp.Packet, 100)
@@ -538,7 +542,7 @@ func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtsp
 
 	// Monitor context cancellation
 	go func() {
-		<-ctx.Done()
+		<-wr.ctx.Done()
 		log.Println("RTSP consumer shutting down")
 		c.Close()
 	}()

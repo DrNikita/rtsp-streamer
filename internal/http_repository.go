@@ -466,14 +466,15 @@ func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
 		return err
 	}
 
+	time.Sleep(100 * time.Millisecond)
+
 	go func() {
-		err := wr.rtspConsumer(rtpTrack, rtspUrl)
+		err = wr.rtspConsumer(rtpTrack, rtspUrl)
 		if err != nil {
 			wr.logger.Error(err.Error())
 			return
 		}
 	}()
-
 	return nil
 }
 
@@ -507,12 +508,25 @@ func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtsp
 		return fmt.Errorf("failed to setup RTSP media streams: %w", err)
 	}
 
+	packetChan := make(chan *rtp.Packet, 100)
 	// called when an RTP packet arrives
 	c.OnPacketRTPAny(func(medi *description.Media, forma format.Format, pkt *rtp.Packet) {
-		if err := track.WriteRTP(pkt); err != nil {
-			log.Printf("failed to write RTP packet: %v", err)
+		select {
+		case packetChan <- pkt:
+			//success
+		default:
+			log.Println("Packet dropped due to full buffer")
 		}
 	})
+
+	go func() {
+		defer close(packetChan)
+		for pkt := range packetChan {
+			if err := track.WriteRTP(pkt); err != nil {
+				log.Printf("Error writing RTP packet: %v", err)
+			}
+		}
+	}()
 
 	// start playing
 	_, err = c.Play(nil)
@@ -531,9 +545,9 @@ func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtsp
 
 	// Wait until a fatal error or context cancellation
 	if err = c.Wait(); err != nil && !errors.Is(err, context.Canceled) {
-		return fmt.Errorf("RTSP stream encountered an error: %w", err)
+		wr.logger.Error("RTSP stream encountered an error", "err", err)
 	}
 
-	log.Println("RTSP consumer exited cleanly")
+	wr.logger.Info("consumer started successfully")
 	return nil
 }

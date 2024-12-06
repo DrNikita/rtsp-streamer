@@ -171,11 +171,32 @@ func (sh *serverHandler) OnRecord(ctx *gortsplib.ServerHandlerOnRecordCtx) (*bas
 		log.Printf("record request")
 	}
 
+	type pktAndMedi struct {
+		medi *description.Media
+		pkt  *rtp.Packet
+	}
+
+	pktPool := make(chan pktAndMedi, 100)
 	// called when receiving a RTP packet
 	ctx.Session.OnPacketRTPAny(func(medi *description.Media, forma format.Format, pkt *rtp.Packet) {
 		// route the RTP packet to all readers
-		sh.stream.WritePacketRTP(medi, pkt)
+		select {
+		case pktPool <- pktAndMedi{
+			medi: medi,
+			pkt:  pkt,
+		}:
+			//success
+		default:
+			log.Println("Packet dropped due to full buffer")
+		}
 	})
+
+	go func() {
+		defer close(pktPool)
+		for pktAndMedi := range pktPool {
+			sh.stream.WritePacketRTP(pktAndMedi.medi, pktAndMedi.pkt)
+		}
+	}()
 
 	return &base.Response{
 		StatusCode: base.StatusOK,

@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -28,11 +27,10 @@ func NewAuthRepository(authConfig *configs.ExternalAuthService, logger *slog.Log
 
 func (mr *AuthRepository) VerifyCredentials(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		jsonBody := []byte(`{"client_message": "hello, server!"}`)
-		bodyReader := bytes.NewReader(jsonBody)
-		verifyRequest, err := http.NewRequest(http.MethodPost, mr.configs.VerificationEndpoint, bodyReader)
+		verifyRequest, err := http.NewRequest(http.MethodPost, mr.configs.VerificationEndpoint, http.NoBody)
 		if err != nil {
 			mr.logger.Error("Bad!!!", "err", err)
+			return
 		}
 
 		if token, err := r.Cookie(mr.configs.VerificationEndpoint); err != nil {

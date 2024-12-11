@@ -31,6 +31,7 @@ type EnvVariables struct {
 
 type ExternalAuthService struct {
 	VerificationEndpoint string `envconfig:"ENDPOINT_VERIFY_TOKEN"`
+	CookieName           string `envconfig:COOKIE_NAME`
 }
 
 func MustConfig() *EnvVariables {

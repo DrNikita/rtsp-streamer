@@ -30,8 +30,7 @@ type EnvVariables struct {
 }
 
 type ExternalAuthService struct {
-	RegisterEndpoint string `envconfig:"endpoint_register"`
-	LoginEndpoint    string `envconfig:"endpoint_login"`
+	VerificationEndpoint string `envconfig:"ENDPOINT_VERIFY_TOKEN"`
 }
 
 func MustConfig() *EnvVariables {

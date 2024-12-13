@@ -30,8 +30,11 @@ type EnvVariables struct {
 }
 
 type ExternalAuthService struct {
-	VerificationEndpoint string `envconfig:"ENDPOINT_VERIFY_TOKEN"`
-	CookieName           string `envconfig:COOKIE_NAME`
+	VerificationEndpoint   string `envconfig:"ENDPOINT_VERIFY_TOKEN"`
+	AccessTokenCookieName  string `envconfig:"COOKIE_NAME_ACCESS_TOKEN"`
+	RefreshTokenCookieName string `envconfig:"COOKIE_NAME_REFRESH_TOKEN"`
+	LoginPageURL           string `envconfig:"PAGE_LOGIN"`
+	RegistrationPageURL    string `envconfig:"PAGE_REGISTRATION"`
 }
 
 func MustConfig() *EnvVariables {

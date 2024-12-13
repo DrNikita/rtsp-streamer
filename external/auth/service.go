@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
+	"strings"
 	"time"
 	"video-handler/configs"
 )
@@ -33,8 +33,24 @@ func (mr *AuthRepository) VerifyCredentials(next http.Handler) http.Handler {
 			return
 		}
 
-		if token, err := r.Cookie(mr.configs.VerificationEndpoint); err != nil {
-			verifyRequest.AddCookie(token)
+		http.Post("", "", nil)
+
+		accessToken, err := r.Cookie(mr.configs.AccessTokenCookieName)
+		if err != nil {
+			mr.logger.Error("failed to get cookie access token", "err", err)
+		}
+
+		refreshToken, err := r.Cookie(mr.configs.RefreshTokenCookieName)
+		if err != nil {
+			mr.logger.Error("failed to get cookie refresh token", "err", err)
+		}
+
+		if accessToken != nil {
+			verifyRequest.AddCookie(accessToken)
+		}
+
+		if refreshToken != nil {
+			verifyRequest.AddCookie(refreshToken)
 		}
 
 		verifyRequest.Header.Set("Content-Type", "application/json")
@@ -46,10 +62,12 @@ func (mr *AuthRepository) VerifyCredentials(next http.Handler) http.Handler {
 		verifyResponse, err := client.Do(verifyRequest)
 		if err != nil {
 			fmt.Printf("client: error making http request: %s\n", err)
-			os.Exit(1)
 		}
 
-		if verifyResponse.Status != string(http.StatusOK) {
+		if !strings.Contains(verifyResponse.Status, "200") &&
+			!strings.Contains(verifyResponse.Status, "201") {
+			http.Redirect(w, r, mr.configs.LoginPageURL, http.StatusUnauthorized)
+			return
 		}
 
 		next.ServeHTTP(w, r)

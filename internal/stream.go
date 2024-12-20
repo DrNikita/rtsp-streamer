@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 	"video-handler/configs"
 	"video-handler/internal/rtspserver"
 )
@@ -29,10 +30,6 @@ func NewStreamerService(service *VideoService, envs *configs.EnvVariables, logge
 func (service *StreamerService) createVideoStream(videoName string) chan string {
 	portChan := make(chan int)
 	errChan := make(chan error)
-	defer func() {
-		close(portChan)
-		close(errChan)
-	}()
 
 	go func() {
 		rtspServer, err := rtspserver.ConfigureRtspServer(portChan, service.Context, service.Logger)
@@ -50,9 +47,13 @@ func (service *StreamerService) createVideoStream(videoName string) chan string 
 
 	rtspUrlChan := make(chan string)
 
+	time.Sleep(time.Second * 1)
+
 	go func() {
 		select {
 		case port := <-portChan:
+			close(portChan)
+			close(errChan)
 			rtspUrl := fmt.Sprintf("%s:%d", service.Envs.RtspStreamUrlPattern, port)
 			service.Logger.Debug("RTSP server configured and running", "RTSP_URL", rtspUrl)
 
@@ -62,8 +63,9 @@ func (service *StreamerService) createVideoStream(videoName string) chan string 
 				service.CtxCancel()
 			}
 		case err := <-errChan:
-			service.Logger.Error("couldn't setup RTSP-server => stream wasn't started", "err", err)
+			close(errChan)
 			close(rtspUrlChan)
+			service.Logger.Error("couldn't setup RTSP-server => stream wasn't started", "err", err)
 		}
 	}()
 

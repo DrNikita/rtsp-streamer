@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
-	"strconv"
-	"sync"
 	"video-handler/configs"
 	"video-handler/internal/rtspserver"
 )
@@ -29,52 +26,46 @@ func NewStreamerService(service *VideoService, envs *configs.EnvVariables, logge
 	}
 }
 
-func (service *StreamerService) createVideoStream(videoName string) (string, error) {
-	freePort, err := findFreePort()
-	if err != nil {
-		return "", err
-	}
+func (service *StreamerService) createVideoStream(videoName string) chan string {
+	portChan := make(chan int)
+	errChan := make(chan error)
+	defer func() {
+		close(portChan)
+		close(errChan)
+	}()
 
-	var wg sync.WaitGroup
-
-	wg.Add(1)
 	go func() {
-		wg.Done()
-		rtspServer := rtspserver.ConfigureRtspServer(":"+strconv.Itoa(freePort), service.Context)
-		err := rtspServer.StartAndWait()
+		rtspServer, err := rtspserver.ConfigureRtspServer(portChan, service.Context, service.Logger)
 		if err != nil {
+			service.Logger.Error("error while setuping RTSP server", "err", err)
+			errChan <- err
+			return
+		}
+
+		if err := rtspServer.StartAndWait(); err != nil {
+			service.Logger.Error("error while starting RTSP server", "err", err)
 			service.CtxCancel()
 		}
 	}()
 
-	rtspUrl := fmt.Sprintf("%s:%d", service.Envs.RtspStreamUrlPattern, freePort)
-	service.Logger.Debug("RTSP server configured and running", "RTSP_URL", rtspUrl)
+	rtspUrlChan := make(chan string)
 
-	wg.Add(1)
 	go func() {
-		wg.Done()
-		err = service.VideoService.streamVideoToServer(videoName, rtspUrl)
-		if err != nil {
-			service.CtxCancel()
+		select {
+		case port := <-portChan:
+			rtspUrl := fmt.Sprintf("%s:%d", service.Envs.RtspStreamUrlPattern, port)
+			service.Logger.Debug("RTSP server configured and running", "RTSP_URL", rtspUrl)
+
+			rtspUrlChan <- rtspUrl
+
+			if err := service.VideoService.streamVideoToServer(videoName, rtspUrl); err != nil {
+				service.CtxCancel()
+			}
+		case err := <-errChan:
+			service.Logger.Error("couldn't setup RTSP-server => stream wasn't started", "err", err)
+			close(rtspUrlChan)
 		}
 	}()
 
-	wg.Wait()
-
-	return rtspUrl, nil
-}
-
-func findFreePort() (int, error) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return 0, err
-	}
-
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-
-	return l.Addr().(*net.TCPAddr).Port, nil
+	return rtspUrlChan
 }

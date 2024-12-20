@@ -387,6 +387,34 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 	wr.signalPeerConnections()
 
 	message := &websocketMessage{}
+
+	rtpTrackChan := make(chan *webrtc.TrackLocalStaticRTP)
+	videoNameChan := make(chan string)
+	defer func() {
+		close(rtpTrackChan)
+		close(videoNameChan)
+	}()
+
+	go func() {
+		for {
+			videoName := <-videoNameChan
+			rtspServerUrlChan := wr.streamerService.createVideoStream(videoName)
+			rtspUrl, ok := <-rtspServerUrlChan
+			close(rtspServerUrlChan)
+			if !ok {
+				wr.logger.Error("error while creating video stream")
+				continue
+			}
+
+			go func() {
+				rtpTrack := <-rtpTrackChan
+				if err := wr.rtspConsumer(rtpTrack, rtspUrl); err != nil {
+					wr.logger.Error("error consuming rtpTrack", "err", err.Error())
+				}
+			}()
+		}
+	}()
+
 	for {
 		_, raw, err := c.ReadMessage()
 		if err != nil {
@@ -424,17 +452,19 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 			videoName := strings.Replace(message.Data, "\"", "", -1)
 			wr.logger.Debug("video name received", "data", videoName)
 
-			rtspUrl, err := wr.streamerService.createVideoStream(videoName)
+			videoNameChan <- videoName
+
+			trackUUID := uuid.New().String()
+			rtpTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, trackUUID, trackUUID)
 			if err != nil {
-				wr.logger.Error("", "err", err.Error())
+				wr.logger.Error("failed to create rtpTrack", "err", err.Error())
 				return
 			}
 
-			time.Sleep(1 * time.Second)
+			rtpTrackChan <- rtpTrack
 
-			err = wr.publishNewStream(rtspUrl)
+			err = wr.addTrack(rtpTrack)
 			if err != nil {
-				wr.logger.Error("failed to publish video-stream", "err", err.Error())
 				return
 			}
 		case "remove":
@@ -456,34 +486,7 @@ func (t *threadSafeWriter) WriteJSON(v interface{}) error {
 	return t.Conn.WriteJSON(v)
 }
 
-func (wr *WebrtcRepository) publishNewStream(rtspUrl string) error {
-	trackUUID := uuid.New().String()
-	rtpTrack, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264}, trackUUID, trackUUID)
-	if err != nil {
-		return err
-	}
-
-	err = wr.addTrack(rtpTrack)
-	if err != nil {
-		return err
-	}
-
-	time.Sleep(100 * time.Millisecond)
-
-	go func() {
-		err := wr.rtspConsumer(rtpTrack, rtspUrl)
-		if err != nil {
-			wr.logger.Error(err.Error())
-			return
-		}
-	}()
-	return nil
-}
-
 func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) error {
-	c := gortsplib.Client{}
-
-	// parse URL
 	u, err := base.ParseURL(rtspUrl)
 	if err != nil {
 		wr.logger.Error("failed to parse url", "RTSP_URL", rtspUrl, "err", err.Error())
@@ -491,6 +494,7 @@ func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtsp
 	}
 
 	// connect to the server
+	c := gortsplib.Client{}
 	err = c.Start(u.Scheme, u.Host)
 	if err != nil {
 		wr.logger.Error(err.Error())

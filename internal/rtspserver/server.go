@@ -3,6 +3,9 @@ package rtspserver
 import (
 	"context"
 	"log"
+	"log/slog"
+	"net"
+	"strconv"
 	"sync"
 
 	"github.com/pion/rtp"
@@ -231,16 +234,37 @@ func ConfigureServer(
 	return h.s
 }
 
-func ConfigureRtspServer(rtspAddress string, ctx context.Context) *gortsplib.Server {
+func ConfigureRtspServer(portChan chan int, ctx context.Context, logger *slog.Logger) (*gortsplib.Server, error) {
+	freePort, err := findFreePort()
+	if err != nil {
+		return nil, err
+	}
+	
+	portChan <- freePort
+
 	h := &serverHandler{
 		ctx: ctx,
 	}
+
 	h.s = &gortsplib.Server{
 		Handler:     h,
-		RTSPAddress: rtspAddress,
+		RTSPAddress: ":" + strconv.Itoa(freePort),
 	}
 
-	log.Printf("RTSP server is ready and running on port: " + rtspAddress)
+	return h.s, nil
+}
 
-	return h.s
+func findFreePort() (int, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return 0, err
+	}
+
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+
+	return l.Addr().(*net.TCPAddr).Port, nil
 }

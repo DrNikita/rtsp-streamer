@@ -239,8 +239,10 @@ func ConfigureRtspServer(portChan chan int, ctx context.Context, logger *slog.Lo
 	if err != nil {
 		return nil, err
 	}
-	
-	portChan <- freePort
+
+	defer func() {
+		portChan <- freePort
+	}()
 
 	h := &serverHandler{
 		ctx: ctx,

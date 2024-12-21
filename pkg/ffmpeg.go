@@ -32,6 +32,10 @@ func (cc *CmdCommand) ExecuteCommand() ([]byte, error) {
 
 	videoCodec := strings.TrimSpace(string(stdout))
 
+	if err := cmd.Wait(); err != nil {
+		return nil, err
+	}
+
 	cc.Logger.Info(FFMPEG_COMMAND_SUCCESS, "msg", videoCodec, "ffmpeg-command", fmt.Sprintf("%s %s", cc.App, cc.Args[:]))
 	return []byte(videoCodec), nil
 }
@@ -51,6 +55,10 @@ func (cc *CmdCommand) ExecuteWithPipeCreation() (io.ReadCloser, error) {
 	}
 
 	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+
+	if err := cmd.Wait(); err != nil {
 		return nil, err
 	}
 

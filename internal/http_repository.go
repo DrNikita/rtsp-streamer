@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -16,10 +17,15 @@ import (
 	"video-handler/external/auth"
 
 	chiprometheus "github.com/766b/chi-prometheus"
+	"github.com/bluenviron/gortsplib/v4"
+	"github.com/bluenviron/gortsplib/v4/pkg/base"
+	"github.com/bluenviron/gortsplib/v4/pkg/description"
+	"github.com/bluenviron/gortsplib/v4/pkg/format"
 	"github.com/go-chi/chi"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -393,10 +399,11 @@ func (wr *WebrtcRepository) websocketHandler(w http.ResponseWriter, r *http.Requ
 		for {
 			videoName := <-videoNameChan
 			rtspServerUrlChan := wr.streamerService.createVideoStream(videoName)
+
 			rtspUrl, ok := <-rtspServerUrlChan
 			close(rtspServerUrlChan)
 			if !ok {
-				wr.logger.Error("error while creating video stream")
+				wr.logger.Error("empty rtsp server url was received")
 				continue
 			}
 
@@ -481,75 +488,75 @@ func (t *threadSafeWriter) WriteJSON(v interface{}) error {
 }
 
 func (wr *WebrtcRepository) rtspConsumer(track *webrtc.TrackLocalStaticRTP, rtspUrl string) error {
-	// u, err := base.ParseURL(rtspUrl)
-	// if err != nil {
-	// 	wr.logger.Error("failed to parse url", "RTSP_URL", rtspUrl, "err", err.Error())
-	// 	panic(err)
-	// }
+	u, err := base.ParseURL(rtspUrl)
+	if err != nil {
+		wr.logger.Error("failed to parse url", "RTSP_URL", rtspUrl, "err", err.Error())
+		return err
+	}
 
-	// // connect to the server
-	// c := gortsplib.Client{}
-	// err = c.Start(u.Scheme, u.Host)
-	// if err != nil {
-	// 	wr.logger.Error(err.Error())
-	// 	panic(err)
-	// }
-	// defer c.Close()
+	// connect to the server
+	c := gortsplib.Client{}
+	err = c.Start(u.Scheme, u.Host)
+	if err != nil {
+		wr.logger.Error(err.Error())
+		return err
+	}
+	defer c.Close()
 
-	// // find available medias
-	// desc, _, err := c.Describe(u)
-	// if err != nil {
-	// 	wr.logger.Error("failed to describe url", "RTSP_URL", rtspUrl, "err", err.Error())
-	// 	panic(err)
-	// }
+	// find available medias
+	desc, _, err := c.Describe(u)
+	if err != nil {
+		wr.logger.Error("failed to describe url", "RTSP_URL", rtspUrl, "err", err.Error())
+		return err
+	}
 
-	// // setup all medias
-	// err = c.SetupAll(desc.BaseURL, desc.Medias)
-	// if err != nil {
-	// 	wr.logger.Error(err.Error())
-	// 	panic(err)
-	// }
+	// setup all medias
+	err = c.SetupAll(desc.BaseURL, desc.Medias)
+	if err != nil {
+		wr.logger.Error(err.Error())
+		return err
+	}
 
-	// packetChan := make(chan *rtp.Packet, 100)
-	// // called when an RTP packet arrives
-	// c.OnPacketRTPAny(func(medi *description.Media, forma format.Format, pkt *rtp.Packet) {
-	// 	select {
-	// 	case packetChan <- pkt:
-	// 		//success
-	// 	default:
-	// 		log.Println("Packet dropped due to full buffer")
-	// 	}
-	// })
+	packetChan := make(chan *rtp.Packet, 100)
+	// called when an RTP packet arrives
+	c.OnPacketRTPAny(func(medi *description.Media, forma format.Format, pkt *rtp.Packet) {
+		select {
+		case packetChan <- pkt:
+			//success
+		default:
+			log.Println("Packet dropped due to full buffer")
+		}
+	})
 
-	// go func() {
-	// 	defer close(packetChan)
-	// 	for pkt := range packetChan {
-	// 		if err := track.WriteRTP(pkt); err != nil {
-	// 			log.Printf("Error writing RTP packet: %v", err)
-	// 		}
-	// 	}
-	// }()
+	go func() {
+		defer close(packetChan)
+		for pkt := range packetChan {
+			if err := track.WriteRTP(pkt); err != nil {
+				log.Printf("Error writing RTP packet: %v", err)
+			}
+		}
+	}()
 
-	// // start playing
-	// _, err = c.Play(nil)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to start playing RTSP stream: %w", err)
-	// }
+	// start playing
+	_, err = c.Play(nil)
+	if err != nil {
+		return fmt.Errorf("failed to start playing RTSP stream: %w", err)
+	}
 
-	// log.Println("RTSP stream started successfully")
+	log.Println("RTSP stream started successfully")
 
-	// // Monitor context cancellation
-	// go func() {
-	// 	<-wr.ctx.Done()
-	// 	log.Println("RTSP consumer shutting down")
-	// 	c.Close()
-	// }()
+	// Monitor context cancellation
+	go func() {
+		<-wr.ctx.Done()
+		log.Println("RTSP consumer shutting down")
+		c.Close()
+	}()
 
-	// // Wait until a fatal error or context cancellation
-	// if err = c.Wait(); err != nil && !errors.Is(err, context.Canceled) {
-	// 	wr.logger.Error("RTSP stream encountered an error", "err", err)
-	// }
+	// Wait until a fatal error or context cancellation
+	if err = c.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		wr.logger.Error("RTSP stream encountered an error", "err", err)
+	}
 
-	// wr.logger.Info("consumer started successfully")
+	wr.logger.Info("consumer started successfully")
 	return nil
 }

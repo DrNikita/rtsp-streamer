@@ -24,7 +24,7 @@ function setupWebRTCConnection() {
     el.setAttribute("data-track-id", trackID);
 
     let removeButton = document.createElement("button");
-    removeButton.textContent = "Remove";
+    removeButton.textContent = "Завершить";
     removeButton.onclick = function() {
       removeVideoByTrackID(trackID);
     };
